@@ -1874,10 +1874,11 @@
   }
 
   function textEditFontName(edit) {
+    const requested = String(edit.fontFamily || "").toLowerCase();
     const family =
-      edit.family === "serif"
+      /times|georgia|garamond|serif/.test(requested) || edit.family === "serif"
         ? "TimesRoman"
-        : edit.family === "mono"
+        : /courier|mono/.test(requested) || edit.family === "mono"
           ? "Courier"
           : "Helvetica";
 
@@ -1937,6 +1938,7 @@
         let size = baseSize;
 
         while (
+          !edit.manualSize &&
           size > minSize &&
           font.widthOfTextAtSize(edit.text, size) > maxWidth
         ) {

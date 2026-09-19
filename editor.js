@@ -285,6 +285,7 @@
           ? (active.rotation % 180 ? active.overlay.clientWidth : active.overlay.clientHeight)
           : Math.min(active.overlay.clientWidth, active.overlay.clientHeight);
         item.size = Number(value) / Math.max(1, basis);
+        if (item.type === "textedit") item.manualSize = true;
       } else if (property === "color") item.color = value;
       else item[property] = !!value;
       active.status.textContent = "Text formatting updated";
@@ -795,7 +796,9 @@
     if (!active) return false;
     var before = existing ? existing.text : run.text;
     var next = String(value == null ? "" : value);
-    if (next === before) return false;
+    var forceFormat = !!active.forceTextEditCommit;
+    active.forceTextEditCommit = false;
+    if (next === before && !forceFormat) return false;
 
     pushLocalHistory();
 
@@ -1188,7 +1191,9 @@
 
     var baseSize = Math.max(6, (item.size || 0.02) * canonicalHeight);
     var maxWidth = Math.max(1, (item.w || 0.1) * canonicalWidth);
-    var fontSize = fitExistingTextPx(ctx, item.text, maxWidth, baseSize, item);
+    var fontSize = item.manualSize
+      ? baseSize
+      : fitExistingTextPx(ctx, item.text, maxWidth, baseSize, item);
     var baseline = canonicalToDisplay(
       { x: item.x, y: item.baseline },
       rotation
@@ -1346,6 +1351,21 @@
     }, "Underline");
     textFormatGroup.append(boldButton, italicButton, underlineButton);
 
+    function markExistingTextFormatIntent() {
+      if (
+        active &&
+        active.directTextEditor &&
+        active.directTextEditor.isConnected &&
+        !active.directTextEditor.classList.contains("is-new")
+      ) {
+        active.forceTextEditCommit = true;
+      }
+    }
+
+    [textFont, size, color, boldButton, italicButton, underlineButton].forEach(function (control) {
+      control.addEventListener("pointerdown", markExistingTextFormatIntent, true);
+    });
+
     textFont.addEventListener("change", function () {
       applyTextFormatChange("fontFamily", textFont.value);
       syncInlineTextFormatting();
@@ -1409,6 +1429,7 @@
       imageRuns: null,
       imageRunsPromise: null,
       directTextEditor: null,
+      forceTextEditCommit: false,
       rotation: normRotation(page.rotation || 0),
       pointer: null,
       dirty: false,

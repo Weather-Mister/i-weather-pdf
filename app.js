@@ -19,7 +19,6 @@
     viewerPromise: null,
     exportPromise: null,
     editorPromise: null,
-    converterPromise: null,
     pptxViewerPromise: null,
     sidebarObserver: null,
     history: { undo: [], redo: [] },
@@ -33,7 +32,6 @@
     fileInput: $("#fileInput"),
     chooseButton: $("#chooseButton"),
     addButton: $("#addButton"),
-    converterButton: $("#converterButton"),
     pptxViewerButton: $("#pptxViewerButton"),
     stripAddButton: $("#stripAddButton"),
     addMoreButton: $("#addMoreButton"),
@@ -191,29 +189,6 @@
       });
 
     return state.editorPromise;
-  }
-
-
-  function ensureConverter() {
-    if (window.iWeatherPDFConverter) return Promise.resolve(window.iWeatherPDFConverter);
-    if (state.converterPromise) return state.converterPromise;
-
-    if (!document.querySelector('link[data-pdf-converter-css]')) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = "./converter.css?v=1";
-      link.dataset.pdfConverterCss = "true";
-      document.head.appendChild(link);
-    }
-
-    state.converterPromise = loadScript("./converter.js?v=1", "iWeatherPDFConverter")
-      .then(() => window.iWeatherPDFConverter)
-      .catch((error) => {
-        state.converterPromise = null;
-        throw error;
-      });
-
-    return state.converterPromise;
   }
 
 
@@ -1964,19 +1939,6 @@
     .filter(Boolean)
     .forEach((button) => button.addEventListener("click", openPicker));
 
-  els.converterButton.addEventListener("click", async () => {
-    els.converterButton.disabled = true;
-    try {
-      const converter = await ensureConverter();
-      converter.open();
-    } catch (error) {
-      console.error(error);
-      showToast("Could not open the converter.", 2600);
-    } finally {
-      els.converterButton.disabled = false;
-    }
-  });
-
   els.pptxViewerButton.addEventListener("click", async () => {
     els.pptxViewerButton.disabled = true;
     try {
@@ -2033,7 +1995,6 @@
 
   window.addEventListener("dragenter", (event) => {
     if (
-      document.body.classList.contains("converter-open") ||
       document.body.classList.contains("pptx-viewer-open")
     ) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
@@ -2045,7 +2006,6 @@
 
   window.addEventListener("dragover", (event) => {
     if (
-      document.body.classList.contains("converter-open") ||
       document.body.classList.contains("pptx-viewer-open")
     ) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
@@ -2055,7 +2015,6 @@
 
   window.addEventListener("dragleave", (event) => {
     if (
-      document.body.classList.contains("converter-open") ||
       document.body.classList.contains("pptx-viewer-open")
     ) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
@@ -2068,7 +2027,6 @@
 
   window.addEventListener("drop", (event) => {
     if (
-      document.body.classList.contains("converter-open") ||
       document.body.classList.contains("pptx-viewer-open")
     ) return;
     if (!event.dataTransfer || !event.dataTransfer.files.length) return;
@@ -2082,7 +2040,6 @@
   window.addEventListener("keydown", (event) => {
     if (
       document.body.classList.contains("pdf-editor-open") ||
-      document.body.classList.contains("converter-open") ||
       document.body.classList.contains("pptx-viewer-open")
     ) return;
     const modifier = event.metaKey || event.ctrlKey;

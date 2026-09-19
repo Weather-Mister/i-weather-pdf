@@ -28,6 +28,9 @@ jobs:
       - name: Audit workspace
         run: node tests/audit.mjs
 
+      - name: Browser stress test
+        run: node tests/browser-stress.mjs
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 

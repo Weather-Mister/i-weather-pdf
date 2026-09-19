@@ -188,7 +188,7 @@
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=15", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=16", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;

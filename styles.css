@@ -490,3 +490,96 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(244,196,48,.32);outl
   .export-button{padding:0 8px}
   .export-button span{display:none}
 }
+
+
+/* Contrast pass v16 */
+:root{
+  --text:#15140f;
+  --muted:#5f5c50;
+  --line:#d2d0c5;
+  --line-strong:#b9b6a7;
+  --accent:#f4c430;
+  --accent-strong:#9a7300;
+  --accent-soft:#fff1a6;
+}
+
+.document-strip{display:none!important}
+
+.topbar{
+  background:#fff;
+  border-bottom-color:#c9c6b8;
+}
+.brand-mark{
+  color:#251d00;
+  border:1px solid #c99b00;
+}
+.brand-text{color:#15140f}
+.brand-text strong{color:#6f5300}
+
+.add-button,.choose-button,.export-button{
+  color:#211a00;
+  border:1px solid #c99b00;
+  background:#f4c430;
+  box-shadow:none;
+}
+.add-button:hover,.choose-button:hover,.export-button:not(:disabled):hover{
+  background:#e8b915;
+  color:#171200;
+}
+
+.icon-button,.pptx-button{color:#3f3d35}
+.icon-button:not(:disabled):hover,.pptx-button:hover:not(:disabled){
+  background:#eeeCE4;
+  color:#161510;
+}
+
+.loaded-state{background:#deded9}
+.sidebar{
+  background:#f8f8f4;
+  border-right-color:#c5c3b7;
+}
+.sidebar-heading{color:#555247}
+.sidebar-reorder-hint{color:#6b675a}
+.sidebar-page-row:hover{background:#ecebe4}
+.sidebar-page-row.is-selected,
+.sidebar-page-row.is-active{
+  background:#fff1a6;
+  box-shadow:inset 3px 0 0 #c99b00,0 0 0 1px rgba(154,115,0,.12);
+}
+.sidebar-page-row.is-active .sidebar-thumb-wrap{
+  box-shadow:0 0 0 2px #c99b00;
+}
+.sidebar-page-info strong{color:#1c1b16}
+.sidebar-page-info span{color:#5f5c50}
+
+.canvas-toolbar{
+  background:#f7f7f3;
+  border-bottom-color:#c6c4b9;
+}
+.canvas-toolbar strong{color:#171610}
+.canvas-toolbar span{color:#5f5c50}
+.canvas-icon-button,.extract-button{
+  color:#4b493f;
+}
+.canvas-icon-button:hover:not(:disabled),.extract-button:hover:not(:disabled){
+  background:#e7e5dc;
+  color:#171610;
+}
+.canvas-icon-button.is-active{
+  background:#fff1a6;
+  color:#6f5300;
+  box-shadow:inset 0 0 0 1px #d3ad20;
+}
+.extract-button{
+  border:1px solid #c8c5b8;
+  background:#fff;
+}
+.extract-button:hover:not(:disabled){border-color:#aaa696}
+
+.page-grid.is-viewer{background:#d8d8d2}
+.statusbar{
+  background:#f7f7f3;
+  border-top-color:#c9c6b8;
+  color:#555247;
+}
+.status-dot{background:#c99b00}

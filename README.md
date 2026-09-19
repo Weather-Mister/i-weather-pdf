@@ -29,7 +29,7 @@ Current shell behavior:
 
 - Responsive desktop/mobile workspace.
 - Drag-and-drop PDF intake anywhere in the window.
-- Multi-file picker.
+- Multi-file picker, including adding the same PDF more than once as separate workspace copies.
 - Files remain in browser memory only.
 - Imported-document strip with remove and drag reorder.
 - Tool-mode shell for Split, Combine, Reorder, and Edit.
@@ -89,3 +89,10 @@ The synthetic harness validates workspace/state behavior and rendering lifecycle
 ## Next implementation milestone
 
 Improve direct editing ergonomics: richer text controls, resize handles for placed images/shapes, and optional persistence/recovery without adding a backend.
+
+
+## Performance notes
+
+The viewer keeps runtime work deliberately small: PDF.js is loaded only after a PDF is opened, the free editor is loaded only when the page workspace needs it, and pdf-lib is loaded only when an export is requested. Sidebar thumbnails are lazy-rendered and off-screen canvases are released. Large inserted images are resized before being stored in edit history.
+
+A zero-dependency audit runs before every GitHub Pages deployment via `node tests/audit.mjs`.

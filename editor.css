@@ -291,3 +291,9 @@
   background:rgba(244,196,48,.14);
   box-shadow:inset 0 0 0 1.5px rgba(183,139,0,.82)
 }
+
+
+/* Stable page open */
+.pdf-editor-stage-wrap.is-initializing .pdf-editor-stage{
+  visibility:hidden;
+}

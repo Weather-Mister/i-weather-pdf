@@ -176,12 +176,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=7";
+      link.href = "./editor.css?v=8";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=7", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=8", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -1858,8 +1858,9 @@
     const cssViewport = pdfPage.getViewport({ scale: cssScale, rotation });
     const cssWidth = Math.max(1, Math.floor(cssViewport.width));
     const cssHeight = Math.max(1, Math.floor(cssViewport.height));
-    const pixelBudgetDpr = Math.sqrt(4200000 / Math.max(1, cssWidth * cssHeight));
-    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 1.6, pixelBudgetDpr));
+    const pixelBudgetDpr = Math.sqrt(12000000 / Math.max(1, cssWidth * cssHeight));
+    const requestedDpr = Math.max(window.devicePixelRatio || 1, 1.8);
+    const dpr = Math.max(1, Math.min(requestedDpr, 2.5, pixelBudgetDpr));
     const viewport = pdfPage.getViewport({ scale: cssScale * dpr, rotation });
 
     canvas.width = Math.max(1, Math.floor(viewport.width));

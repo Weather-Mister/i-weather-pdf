@@ -135,14 +135,27 @@
       button.classList.toggle("is-active", button.dataset.tool === tool);
     });
     active.overlay.classList.toggle("select", tool === "select");
+    active.overlay.classList.toggle("edit-existing-text", tool === "edittext");
     active.status.textContent =
       tool === "select" ? "Tap an edit to select and drag it" :
+      tool === "edittext" ? "Loading editable text…" :
       tool === "text" ? "Tap anywhere to add text" :
       tool === "pen" ? "Draw directly on the page" :
       tool === "highlight" ? "Drag across an area to highlight" :
       tool === "rect" ? "Drag to draw a rectangle" :
       tool === "whiteout" ? "Drag to cover an area" :
       tool === "image" ? "Choose an image, then place it" : "Edit";
+
+    if (tool === "edittext") {
+      loadTextRuns().then(function () {
+        if (!active || active.tool !== "edittext") return;
+        active.status.textContent = active.textRuns.length
+          ? "Tap highlighted existing text to replace or delete it"
+          : "No editable text detected on this page";
+        draw();
+      });
+    }
+
     draw();
   }
 
@@ -158,6 +171,267 @@
     active.toolButtons.push(button);
     return button;
   }
+
+  function loadTextRuns() {
+    if (!active) return Promise.resolve([]);
+    if (Array.isArray(active.textRuns)) return Promise.resolve(active.textRuns);
+    if (active.textRunsPromise) return active.textRunsPromise;
+
+    active.textRunsPromise = Promise.resolve(host().getPageTextRuns(active.pageId))
+      .then(function (runs) {
+        if (!active) return [];
+        active.textRuns = Array.isArray(runs) ? runs : [];
+        active.textRunsPromise = null;
+        return active.textRuns;
+      })
+      .catch(function (error) {
+        console.error(error);
+        if (active) {
+          active.textRuns = [];
+          active.textRunsPromise = null;
+          active.status.textContent = "Could not inspect existing text";
+        }
+        return [];
+      });
+
+    return active.textRunsPromise;
+  }
+
+  function fontFamilyCss(item) {
+    if (item.family === "serif") return "Times New Roman,Times,serif";
+    if (item.family === "mono") return "Consolas,Courier New,monospace";
+    return "Helvetica,Arial,sans-serif";
+  }
+
+  function canvasHex(r, g, b) {
+    return "#" + [r, g, b].map(function (value) {
+      return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
+    }).join("");
+  }
+
+  function sampleExistingTextColors(run) {
+    if (!active) return { color: "#111111", bg: "#ffffff" };
+
+    var rect = rectToDisplay(run, active.rotation);
+    var canvas = active.pageCanvas;
+    var ctx = canvas.getContext("2d", { willReadFrequently: true });
+    var x = Math.max(0, Math.floor(rect.x * canvas.width));
+    var y = Math.max(0, Math.floor(rect.y * canvas.height));
+    var w = Math.max(1, Math.floor(rect.w * canvas.width));
+    var h = Math.max(1, Math.floor(rect.h * canvas.height));
+    var pad = Math.max(2, Math.round(h * 0.32));
+    var bx = Math.max(0, x - pad);
+    var by = Math.max(0, y - pad);
+    var bw = Math.min(canvas.width - bx, w + pad * 2);
+    var bh = Math.min(canvas.height - by, h + pad * 2);
+
+    if (bw <= 0 || bh <= 0) return { color: "#111111", bg: "#ffffff" };
+
+    try {
+      var pixels = ctx.getImageData(bx, by, bw, bh).data;
+      var darkest = null;
+      var darkestLum = Infinity;
+      var counts = new Map();
+
+      for (var py = 0; py < bh; py++) {
+        for (var px = 0; px < bw; px++) {
+          var index = (py * bw + px) * 4;
+          var r = pixels[index];
+          var g = pixels[index + 1];
+          var b = pixels[index + 2];
+          var lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          var inside =
+            px >= x - bx &&
+            px < x - bx + w &&
+            py >= y - by &&
+            py < y - by + h;
+
+          if (inside) {
+            if (lum < darkestLum) {
+              darkestLum = lum;
+              darkest = [r, g, b];
+            }
+          } else {
+            var key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+            counts.set(key, (counts.get(key) || 0) + 1);
+          }
+        }
+      }
+
+      var bestKey = null;
+      var bestCount = -1;
+      counts.forEach(function (count, key) {
+        if (count > bestCount) {
+          bestCount = count;
+          bestKey = key;
+        }
+      });
+
+      var bg = "#ffffff";
+      if (bestKey !== null) {
+        bg = canvasHex(
+          ((bestKey >> 8) & 15) * 17,
+          ((bestKey >> 4) & 15) * 17,
+          (bestKey & 15) * 17
+        );
+      }
+
+      return {
+        color: darkest ? canvasHex(darkest[0], darkest[1], darkest[2]) : "#111111",
+        bg: bg
+      };
+    } catch (_) {
+      return { color: "#111111", bg: "#ffffff" };
+    }
+  }
+
+  function editedTextKeys() {
+    var keys = new Set();
+    if (!active) return keys;
+    active.annotations.forEach(function (item) {
+      if (item.type === "textedit" && item.lineKey) keys.add(item.lineKey);
+    });
+    return keys;
+  }
+
+  function hitExistingText(displayPoint) {
+    if (!active || !Array.isArray(active.textRuns)) return null;
+    var edited = editedTextKeys();
+
+    for (var i = active.textRuns.length - 1; i >= 0; i--) {
+      var run = active.textRuns[i];
+      if (edited.has(run.key)) continue;
+      var rect = rectToDisplay(run, active.rotation);
+      if (
+        displayPoint.x >= rect.x - 0.004 &&
+        displayPoint.x <= rect.x + rect.w + 0.004 &&
+        displayPoint.y >= rect.y - 0.004 &&
+        displayPoint.y <= rect.y + rect.h + 0.004
+      ) {
+        return run;
+      }
+    }
+
+    return null;
+  }
+
+  function promptTextReplacement(run, existing) {
+    var before = existing ? existing.text : run.text;
+    var next = window.prompt(
+      "Edit existing PDF text. Leave empty to delete it:",
+      before
+    );
+    if (next === null || next === before) return;
+
+    pushLocalHistory();
+
+    if (existing) {
+      existing.text = next.slice(0, 4000);
+      active.selectedId = existing.id;
+    } else {
+      var sampled = sampleExistingTextColors(run);
+      var edit = {
+        id: host().uid("textedit"),
+        type: "textedit",
+        lineKey: run.key,
+        original: run.text,
+        text: next.slice(0, 4000),
+        x: run.x,
+        y: run.y,
+        w: run.w,
+        h: run.h,
+        baseline: run.baseline,
+        size: run.size,
+        family: run.family,
+        bold: !!run.bold,
+        italic: !!run.italic,
+        color: sampled.color,
+        bg: sampled.bg,
+        uniqueOriginal: !!run.uniqueOriginal
+      };
+      active.annotations.push(edit);
+      active.selectedId = edit.id;
+    }
+
+    active.status.textContent = next
+      ? "Existing text changed"
+      : "Existing text marked for deletion";
+    draw();
+  }
+
+  function drawExistingTextHotspots(ctx, width, height) {
+    if (!active || active.tool !== "edittext" || !Array.isArray(active.textRuns)) return;
+    var edited = editedTextKeys();
+
+    ctx.save();
+    ctx.lineWidth = Math.max(1, window.devicePixelRatio || 1);
+    ctx.setLineDash([4, 3]);
+
+    active.textRuns.forEach(function (run) {
+      if (edited.has(run.key)) return;
+      var rect = rectToDisplay(run, active.rotation);
+      ctx.fillStyle = "rgba(47,126,230,.07)";
+      ctx.strokeStyle = "rgba(47,126,230,.58)";
+      ctx.fillRect(rect.x * width, rect.y * height, rect.w * width, rect.h * height);
+      ctx.strokeRect(rect.x * width, rect.y * height, rect.w * width, rect.h * height);
+    });
+
+    ctx.restore();
+  }
+
+  function fitExistingTextPx(ctx, text, maxWidth, baseSize, item) {
+    var floor = Math.max(5, baseSize * 0.6);
+    var size = Math.max(floor, baseSize);
+
+    while (size > floor) {
+      ctx.font =
+        (item.italic ? "italic " : "") +
+        (item.bold ? "700 " : "400 ") +
+        size +
+        "px " +
+        fontFamilyCss(item);
+      if (ctx.measureText(text).width <= maxWidth) break;
+      size -= Math.max(0.2, size * 0.04);
+    }
+
+    return Math.max(floor, size);
+  }
+
+  function drawTextEditPreview(ctx, item, width, height, rotation, skipBackground) {
+    var canonicalWidth = rotation % 180 ? height : width;
+    var canonicalHeight = rotation % 180 ? width : height;
+    var rect = rectToDisplay(item, rotation);
+
+    if (!skipBackground) {
+      ctx.fillStyle = item.bg || "#ffffff";
+      ctx.fillRect(rect.x * width, rect.y * height, rect.w * width, rect.h * height);
+    }
+
+    if (!String(item.text || "").length) return;
+
+    var baseSize = Math.max(6, (item.size || 0.02) * canonicalHeight);
+    var maxWidth = Math.max(1, (item.w || 0.1) * canonicalWidth);
+    var fontSize = fitExistingTextPx(ctx, item.text, maxWidth, baseSize, item);
+    var baseline = canonicalToDisplay(
+      { x: item.x, y: item.baseline },
+      rotation
+    );
+
+    ctx.save();
+    ctx.translate(baseline.x * width, baseline.y * height);
+    ctx.rotate(normRotation(rotation) * Math.PI / 180);
+    ctx.fillStyle = item.color || "#111111";
+    ctx.font =
+      (item.italic ? "italic " : "") +
+      (item.bold ? "700 " : "400 ") +
+      fontSize +
+      "px " +
+      fontFamilyCss(item);
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(item.text, 0, 0);
+    ctx.restore();
+  }
+
 
   async function open(pageId, options) {
     options = options || {};
@@ -283,6 +557,8 @@
       redoButton: redoButton,
       toolButtons: [],
       imageInput: imageInput,
+      textRuns: null,
+      textRunsPromise: null,
       rotation: normRotation(page.rotation || 0),
       pointer: null,
       dirty: false,
@@ -292,6 +568,7 @@
 
     toolList.append(
       createToolButton("Select", "select"),
+      createToolButton("Edit text", "edittext"),
       createToolButton("Text", "text"),
       createToolButton("Pen", "pen"),
       createToolButton("Highlight", "highlight"),
@@ -465,7 +742,7 @@
     if (active.tool === "select") {
       var hit = hitTest(displayPoint);
       active.selectedId = hit ? hit.id : null;
-      if (hit) {
+      if (hit && hit.type !== "textedit") {
         active.pointer = {
           id: event.pointerId,
           mode: "move",
@@ -475,6 +752,22 @@
         pushLocalHistory();
       }
       draw();
+      return;
+    }
+
+    if (active.tool === "edittext") {
+      var existingEdit = hitTest(displayPoint);
+      if (existingEdit && existingEdit.type === "textedit") {
+        promptTextReplacement(null, existingEdit);
+        return;
+      }
+
+      var run = hitExistingText(displayPoint);
+      if (run) {
+        promptTextReplacement(run, null);
+      } else {
+        active.status.textContent = "Tap one of the highlighted text lines";
+      }
       return;
     }
 
@@ -651,6 +944,7 @@
     var ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawAnnotations(ctx, active.annotations, canvas.width, canvas.height, active.rotation, active.selectedId, true);
+    drawExistingTextHotspots(ctx, canvas.width, canvas.height);
   }
 
   function drawAnnotations(ctx, annotations, width, height, rotation, selectedId, allowAsyncImages) {
@@ -689,6 +983,8 @@
         lines.forEach(function (line, index) {
           ctx.fillText(line, 0, index * fontPx * 1.2);
         });
+      } else if (item.type === "textedit") {
+        drawTextEditPreview(ctx, item, width, height, rotation, false);
       } else if (item.type === "image") {
         var imageCenter = canonicalToDisplay({ x: item.cx, y: item.cy }, rotation);
         var imageMin = Math.min(width, height);
@@ -782,8 +1078,11 @@
     ctx.restore();
   }
 
-  async function drawAnnotationsAsync(ctx, annotations, width, height) {
+  async function drawAnnotationsAsync(ctx, annotations, width, height, options) {
     var minDim = Math.min(width, height);
+    options = options || {};
+    var strippedOriginals = new Set(options.strippedOriginals || []);
+    var textEditIds = new Set(options.textEditIds || []);
 
     for (var i = 0; i < annotations.length; i++) {
       var item = annotations[i];
@@ -814,6 +1113,19 @@
         String(item.text || "").split(/\r?\n/).forEach(function (line, index) {
           ctx.fillText(line, 0, index * fontPx * 1.2);
         });
+      } else if (item.type === "textedit") {
+        if (!textEditIds.has(item.id)) {
+          ctx.restore();
+          continue;
+        }
+        drawTextEditPreview(
+          ctx,
+          item,
+          width,
+          height,
+          0,
+          strippedOriginals.has(item.original)
+        );
       } else if (item.type === "image") {
         var image = await getImage(item.src);
         if (image) {
@@ -845,8 +1157,13 @@
     }
   }
 
-  async function exportOverlay(pageId, pageWidth, pageHeight) {
+  async function exportOverlay(pageId, pageWidth, pageHeight, options) {
+    options = options || {};
     var annotations = host().getAnnotations(pageId);
+    var textEditIds = new Set(options.textEditIds || []);
+    annotations = annotations.filter(function (item) {
+      return item.type !== "textedit" || textEditIds.has(item.id);
+    });
     if (!annotations.length) return null;
 
     var maxDim = Math.max(pageWidth, pageHeight);
@@ -859,7 +1176,7 @@
 
     var ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    await drawAnnotationsAsync(ctx, annotations, canvas.width, canvas.height);
+    await drawAnnotationsAsync(ctx, annotations, canvas.width, canvas.height, options);
 
     var blob = await new Promise(function (resolve) {
       canvas.toBlob(resolve, "image/png");

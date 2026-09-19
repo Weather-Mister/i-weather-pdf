@@ -773,6 +773,7 @@
     });
 
     window.addEventListener("keydown", keydown, true);
+    setTool("select");
 
     try {
       var mountWidth = embedded ? Math.max(260, options.mount.clientWidth - 36) : window.innerWidth - 70;
@@ -787,7 +788,6 @@
       pageCanvas.style.height = dims.height + "px";
       resizeOverlay(dims.width, dims.height);
       active.rotation = dims.rotation;
-      setTool("select");
       updateUndoRedo();
       draw();
     } catch (error) {

@@ -990,7 +990,7 @@
       makeInspectorButton("Rotate left", () => rotateSelected(-90)),
       makeInspectorButton("Rotate right", () => rotateSelected(90)),
       makeInspectorButton("Duplicate", duplicateSelected),
-      makeInspectorButton("Extract PDF", () => exportPages(selectedPages(), "iweather-extract.pdf"))
+      makeInspectorButton("Extract PDF", () => exportPages(selectedPages(), "i-weather-pdf-extract.pdf"))
     );
 
     const moveGrid = document.createElement("div");
@@ -1843,7 +1843,7 @@
         filename =
           state.documents.length === 1
             ? sanitizeBaseName(state.documents[0].name) + "-edited.pdf"
-            : "iweather-combined.pdf";
+            : "i-weather-pdf-combined.pdf";
       }
 
       anchor.href = url;
@@ -1988,7 +1988,7 @@
     els.extractButton.addEventListener("click", () => {
       saveCurrentEditor();
       if (!state.selected.size) return;
-      exportPages(selectedPages(), state.selected.size === 1 ? "iweather-page.pdf" : "iweather-extract.pdf");
+      exportPages(selectedPages(), state.selected.size === 1 ? "i-weather-pdf-page.pdf" : "i-weather-pdf-extract.pdf");
     });
   }
   els.exportButton.addEventListener("click", () => {

@@ -1032,7 +1032,39 @@
     if (!active || !active.textHitLayer) return;
     if (active.directTextEditor && active.directTextEditor.isConnected) return;
     active.textHitLayer.replaceChildren();
-    active.textHitLayer.classList.toggle("is-active", active.tool === "edittext");
+    active.textHitLayer.classList.toggle(
+      "is-active",
+      active.tool === "edittext" || active.tool === "editimage"
+    );
+
+    if (active.tool === "editimage") {
+      if (!Array.isArray(active.imageRuns)) return;
+      var moved = movedImageKeys();
+      active.imageRuns.forEach(function (run) {
+        if (moved.has(run.key)) return;
+        var rect = rectToDisplay(run, active.rotation);
+        var hit = document.createElement("button");
+        hit.type = "button";
+        hit.className = "pdf-editor-image-hit";
+        hit.style.left = (rect.x * 100) + "%";
+        hit.style.top = (rect.y * 100) + "%";
+        hit.style.width = (rect.w * 100) + "%";
+        hit.style.height = (rect.h * 100) + "%";
+        hit.title = "Move image";
+        hit.setAttribute("aria-label", "Move existing image");
+        hit.addEventListener("pointerdown", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        hit.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          makeExistingImageMovable(run);
+        });
+        active.textHitLayer.appendChild(hit);
+      });
+      return;
+    }
 
     if (active.tool !== "edittext" || !Array.isArray(active.textRuns)) return;
     var edited = editedTextKeys();

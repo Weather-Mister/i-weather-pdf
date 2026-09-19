@@ -38,6 +38,15 @@ assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");
 assert(editor.includes('createToolButton("Edit text", "edittext")'), "existing-text editor tool missing");
 assert(editor.includes('createToolButton("Move image", "editimage")'), "existing-image move tool missing");
+assert(editor.includes("pdf-editor-font-select"), "new-text font selector missing");
+assert(editor.includes("pdf-editor-text-format"), "new-text formatting button group missing");
+assert(editor.includes("underline: !!active.textStyle.underline"), "new-text underline persistence missing");
+assert(editor.includes("function copySelectedObject"), "object copy shortcut logic missing");
+assert(editor.includes("function pasteObject"), "object paste shortcut logic missing");
+assert(app.includes("async function addBlankPage"), "blank-page creation missing");
+assert(app.includes("function copySelectedPages"), "page copy shortcut logic missing");
+assert(app.includes("function pastePages"), "page paste shortcut logic missing");
+assert(app.includes("model.blank"), "blank-page render/export handling missing");
 assert(app.includes("function getPageImageRuns"), "existing PDF image detection missing");
 assert(editor.includes('type: "imagemove"'), "existing image move annotation missing");
 assert(editor.includes("fontFamily: run.fontFamily"), "existing text font metadata is not preserved");
@@ -71,7 +80,7 @@ for (const id of new Set(idSelectors)) {
 
 const hostMethods = [
   "uid","normalizeRotation","getPage","getPageIndex","getDocumentName",
-  "getAnnotations","getPageTextRuns","getPageImageRuns","commitAnnotations","renderPage","showToast","setStatus"
+  "getAnnotations","getPageTextRuns","getPageImageRuns","copySelectedPages","cutSelectedPages","pastePages","duplicateSelected","addBlankPage","commitAnnotations","renderPage","showToast","setStatus"
 ];
 const hostStart = app.indexOf("window.iWeatherPDFEditorHost");
 const hostEnd = app.indexOf("function openPicker", hostStart);

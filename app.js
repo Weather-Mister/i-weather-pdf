@@ -1170,7 +1170,7 @@
       if (targetId && targetId !== data.pageId) data.targetId = targetId;
     }
 
-    $(".sidebar-page-row.is-dragging, .sidebar-page-row.drop-target").forEach((row) => {
+    document.querySelectorAll(".sidebar-page-row.is-dragging, .sidebar-page-row.drop-target").forEach((row) => {
       row.classList.remove("is-dragging", "drop-target");
     });
 

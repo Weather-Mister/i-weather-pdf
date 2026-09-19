@@ -49,9 +49,10 @@ assert(converter.includes("makeZip(entries)"), "dependency-free ZIP writer missi
 assert(app.includes('loadScript("./pptx-viewer.js?v=1"'), "PPTX viewer is not lazy-loaded");
 assert(app.includes('link.href = "./pptx-viewer.css?v=1"'), "PPTX viewer CSS is not lazy-loaded");
 assert(html.includes('id="pptxViewerButton"'), "PPTX viewer entry button missing");
-assert(pptxViewer.includes("omni-doc-viewer@0.1.3"), "PPTX viewer engine is not pinned");
-assert(pptxViewer.includes("createViewer"), "PPTX viewer controller missing");
-assert(pptxViewer.includes("gestures: true"), "PPTX touch/trackpad gestures missing");
+assert(pptxViewer.includes("pptx-preview@1.0.7"), "PPTX viewer engine is not pinned");
+assert(pptxViewer.includes("mod.init"), "PPTX renderer initialization missing");
+assert(pptxViewer.includes("previewer.preview"), "PPTX preview call missing");
+assert(pptxViewer.includes("local only"), "PPTX local-only status missing");
 
 const singleSelectorForEach = /(^|[^$])\$\("[^"]+"\)\.forEach/g;
 assert(!singleSelectorForEach.test(app), "single-element selector used with .forEach");

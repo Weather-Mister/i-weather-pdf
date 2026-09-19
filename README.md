@@ -62,6 +62,30 @@ If GitHub Pages has not previously been enabled for the repository, open:
 
 After that, pushes to `main` deploy automatically.
 
+## Current implementation
+
+The workspace now supports:
+
+- Lazy PDF.js page rendering.
+- Multiple PDFs in one shared page workspace.
+- Page selection, deletion, duplication, rotation, and reorder.
+- Undo/redo for page structure and saved free-edit overlays.
+- Split/extract by exporting selected pages.
+- Combined export with pdf-lib.
+- Free edit mode with text, pen, highlight, rectangle, whiteout, and image overlays.
+- Annotation-aware export: edits are flattened onto the exported PDF while the original PDF page remains vector content.
+- Off-screen thumbnail eviction so scrolling through large files does not retain hundreds of rendered canvases.
+- Edge auto-scroll while dragging pages through long documents.
+- Lazy loading of both the PDF engines and the free editor.
+
+### Stress audit
+
+A synthetic browser stress harness exercised a 500-page workspace assembled from two PDFs, repeated duplicate/delete/undo/redo/rotate/reorder operations, free-edit creation, coordinate transforms at 0°/90°/180°/270°, and a 120-page export assembly.
+
+The key memory issue found during that audit was that rendered thumbnails stayed allocated after scrolling away. The workspace now evicts off-screen canvases and recreates them only when they approach the viewport.
+
+The synthetic harness validates workspace/state behavior and rendering lifecycle. It does not claim compatibility with every unusual or malformed PDF in the wild; encrypted, damaged, or highly specialized PDFs still depend on PDF.js/pdf-lib support.
+
 ## Next implementation milestone
 
-Connect PDF.js and replace the page-engine placeholder with real, lazy-rendered page thumbnails. At that point we can implement page-level drag reorder, selection, deletion, rotation, and export before adding the richer free-edit layer.
+Improve direct editing ergonomics: richer text controls, resize handles for placed images/shapes, and optional persistence/recovery without adding a backend.

@@ -22,6 +22,7 @@
     pptxViewerPromise: null,
     sidebarObserver: null,
     history: { undo: [], redo: [] },
+    pageClipboard: [],
     ignoreClick: false
   };
 
@@ -49,6 +50,7 @@
     inspector: $("#inspector"),
     rotateLeftButton: $("#rotateLeftButton"),
     rotateRightButton: $("#rotateRightButton"),
+    newPageButton: $("#newPageButton"),
     duplicateButton: $("#duplicateButton"),
     selectAllButton: $("#selectAllButton"),
     deletePageButton: $("#deletePageButton"),
@@ -228,12 +230,7 @@
   }
 
   function clonePages() {
-    return state.pages.map((page) => ({
-      id: page.id,
-      docId: page.docId,
-      sourceIndex: page.sourceIndex,
-      rotation: page.rotation || 0
-    }));
+    return state.pages.map((page) => ({ ...page }));
   }
 
   function snapshotWorkspace() {
@@ -309,6 +306,7 @@
     const hasSelection = selectedCount > 0;
     const allSelected = hasPages && selectedCount === state.pages.length;
 
+    if (els.newPageButton) els.newPageButton.disabled = state.exporting;
     if (els.rotateLeftButton) els.rotateLeftButton.disabled = !hasSelection;
     if (els.rotateRightButton) els.rotateRightButton.disabled = !hasSelection;
     if (els.duplicateButton) els.duplicateButton.disabled = !hasSelection;
@@ -664,6 +662,30 @@
     if (!model || !canvas.isConnected) return;
     if (canvas.dataset.rendered === "true" || canvas.dataset.rendering === "true") return;
 
+    if (model.blank) {
+      canvas.dataset.rendering = "true";
+      const parentWidth = Math.max(56, Math.min(canvas.parentElement.clientWidth || 110, 160));
+      const baseW = Math.max(1, model.width || 612);
+      const baseH = Math.max(1, model.height || 792);
+      const rotated = normalizeRotation(model.rotation || 0) % 180;
+      const displayW = rotated ? baseH : baseW;
+      const displayH = rotated ? baseW : baseH;
+      const cssW = parentWidth;
+      const cssH = Math.max(1, Math.round(parentWidth * displayH / displayW));
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width = Math.max(1, Math.round(cssW * dpr));
+      canvas.height = Math.max(1, Math.round(cssH * dpr));
+      canvas.style.width = cssW + "px";
+      canvas.style.height = cssH + "px";
+      const context = canvas.getContext("2d", { alpha: false });
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      canvas.dataset.rendering = "false";
+      canvas.dataset.rendered = "true";
+      if (canvas.parentElement) canvas.parentElement.classList.add("is-rendered");
+      return;
+    }
+
     const doc = getDocumentById(model.docId);
     if (!doc) return;
 
@@ -825,11 +847,12 @@
       title.textContent = "Page " + (index + 1);
 
       const source = document.createElement("span");
-      source.textContent =
-        (doc ? (doc.label || doc.name) : "PDF") +
-        " · p" +
-        (page.sourceIndex + 1) +
-        (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "");
+      source.textContent = page.blank
+        ? "Blank page" + (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "")
+        : (doc ? (doc.label || doc.name) : "PDF") +
+          " · p" +
+          (page.sourceIndex + 1) +
+          (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "");
 
       info.append(title, source);
 
@@ -1033,6 +1056,96 @@
     setStatus("Rotation updated");
   }
 
+  async function inferNewPageSize() {
+    const current = getPageById(state.activePageId);
+    if (current) {
+      if (current.blank) {
+        return {
+          width: Math.max(1, current.width || 612),
+          height: Math.max(1, current.height || 792)
+        };
+      }
+      const doc = getDocumentById(current.docId);
+      if (doc) {
+        try {
+          const pdfPage = await doc.pdfJs.getPage(current.sourceIndex + 1);
+          const viewport = pdfPage.getViewport({ scale: 1, rotation: 0 });
+          return { width: viewport.width, height: viewport.height };
+        } catch (_) {}
+      }
+    }
+    return { width: 612, height: 792 };
+  }
+
+  async function addBlankPage() {
+    saveCurrentEditor();
+    const size = await inferNewPageSize();
+    pushHistory();
+    const page = {
+      id: uid("page"),
+      docId: null,
+      sourceIndex: -1,
+      rotation: 0,
+      blank: true,
+      width: size.width,
+      height: size.height
+    };
+    const activeIndex = state.pages.findIndex((item) => item.id === state.activePageId);
+    const insertAt = activeIndex >= 0 ? activeIndex + 1 : state.pages.length;
+    state.pages.splice(insertAt, 0, page);
+    state.activePageId = page.id;
+    state.selected.clear();
+    state.selected.add(page.id);
+    state.lastSelectedId = page.id;
+    renderWorkspace();
+    showToast("Blank page added");
+  }
+
+  function copySelectedPages() {
+    saveCurrentEditor();
+    const pages = selectedPages();
+    if (!pages.length) return false;
+    state.pageClipboard = pages.map((page) => ({
+      page: deepClone(page),
+      annotations: deepClone(state.annotations[page.id] || [])
+    }));
+    showToast(pages.length + " page" + (pages.length === 1 ? "" : "s") + " copied");
+    return true;
+  }
+
+  function cutSelectedPages() {
+    if (!copySelectedPages()) return false;
+    deleteSelected();
+    showToast("Page" + (state.pageClipboard.length === 1 ? "" : "s") + " cut");
+    return true;
+  }
+
+  function pastePages() {
+    if (!state.pageClipboard.length) return false;
+    saveCurrentEditor();
+    pushHistory();
+
+    const activeIndex = state.pages.findIndex((page) => page.id === state.activePageId);
+    let insertAt = activeIndex >= 0 ? activeIndex + 1 : state.pages.length;
+    const pastedIds = [];
+
+    state.pageClipboard.forEach((entry) => {
+      const copy = { ...deepClone(entry.page), id: uid("page") };
+      state.pages.splice(insertAt++, 0, copy);
+      if (entry.annotations && entry.annotations.length) {
+        state.annotations[copy.id] = deepClone(entry.annotations);
+      }
+      pastedIds.push(copy.id);
+    });
+
+    state.selected = new Set(pastedIds);
+    state.activePageId = pastedIds[0] || state.activePageId;
+    state.lastSelectedId = pastedIds[0] || null;
+    renderWorkspace();
+    showToast(pastedIds.length + " page" + (pastedIds.length === 1 ? "" : "s") + " pasted");
+    return true;
+  }
+
   function duplicateSelected() {
     if (!state.selected.size) return;
     saveCurrentEditor();
@@ -1046,10 +1159,8 @@
       nextPages.push(page);
       if (selected.has(page.id)) {
         const copy = {
-          id: uid("page"),
-          docId: page.docId,
-          sourceIndex: page.sourceIndex,
-          rotation: page.rotation || 0
+          ...page,
+          id: uid("page")
         };
         nextPages.push(copy);
         if (state.annotations[page.id]) {
@@ -1865,6 +1976,7 @@
       const sourceDocs = new Map();
 
       for (const model of pages) {
+        if (model.blank) continue;
         if (sourceDocs.has(model.docId)) continue;
         const doc = getDocumentById(model.docId);
         if (!doc) throw new Error("A source PDF is missing.");
@@ -1880,20 +1992,30 @@
 
       for (let i = 0; i < pages.length; i++) {
         const model = pages[i];
-        const source = sourceDocs.get(model.docId);
-        const copiedPages = await output.copyPages(source, [model.sourceIndex]);
-        const copied = copiedPages[0];
+        let copied;
 
-        const baseRotation =
-          copied.getRotation && copied.getRotation().angle
-            ? copied.getRotation().angle
-            : 0;
-        copied.setRotation(
-          window.PDFLib.degrees(
-            normalizeRotation(baseRotation + (model.rotation || 0))
-          )
-        );
-        output.addPage(copied);
+        if (model.blank) {
+          copied = output.addPage([
+            Math.max(1, model.width || 612),
+            Math.max(1, model.height || 792)
+          ]);
+          copied.setRotation(window.PDFLib.degrees(normalizeRotation(model.rotation || 0)));
+        } else {
+          const source = sourceDocs.get(model.docId);
+          const copiedPages = await output.copyPages(source, [model.sourceIndex]);
+          copied = copiedPages[0];
+
+          const baseRotation =
+            copied.getRotation && copied.getRotation().angle
+              ? copied.getRotation().angle
+              : 0;
+          copied.setRotation(
+            window.PDFLib.degrees(
+              normalizeRotation(baseRotation + (model.rotation || 0))
+            )
+          );
+          output.addPage(copied);
+        }
 
         if (editCount(model.id)) {
           const editor = await ensureEditor();
@@ -1976,6 +2098,29 @@
   async function renderEditorPage(pageId, canvas, maxWidth, maxHeight) {
     const model = getPageById(pageId);
     if (!model) throw new Error("Page not found");
+    if (model.blank) {
+      const rotation = normalizeRotation(model.rotation || 0);
+      const baseWidth = Math.max(1, model.width || 612);
+      const baseHeight = Math.max(1, model.height || 792);
+      const rotated = rotation % 180;
+      const displayWidth = rotated ? baseHeight : baseWidth;
+      const displayHeight = rotated ? baseWidth : baseHeight;
+      const cssScale = Math.max(0.12, Math.min(maxWidth / displayWidth, maxHeight / displayHeight, 6));
+      const cssWidth = Math.max(1, Math.floor(displayWidth * cssScale));
+      const cssHeight = Math.max(1, Math.floor(displayHeight * cssScale));
+      const pixelBudgetDpr = Math.sqrt(12000000 / Math.max(1, cssWidth * cssHeight));
+      const requestedDpr = Math.max(window.devicePixelRatio || 1, 1.8);
+      const dpr = Math.max(0.65, Math.min(requestedDpr, 2.5, pixelBudgetDpr));
+      canvas.width = Math.max(1, Math.floor(cssWidth * dpr));
+      canvas.height = Math.max(1, Math.floor(cssHeight * dpr));
+      canvas.style.width = cssWidth + "px";
+      canvas.style.height = cssHeight + "px";
+      const context = canvas.getContext("2d", { alpha: false });
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      return { width: cssWidth, height: cssHeight, rotation };
+    }
+
     const doc = getDocumentById(model.docId);
     if (!doc) throw new Error("Document not found");
 
@@ -2053,11 +2198,16 @@
     getPageIndex: (pageId) => state.pages.findIndex((page) => page.id === pageId),
     getDocumentName: (docId) => {
       const doc = getDocumentById(docId);
-      return doc ? (doc.label || doc.name) : "";
+      return doc ? (doc.label || doc.name) : "Blank page";
     },
     getAnnotations,
     getPageTextRuns,
     getPageImageRuns,
+    copySelectedPages,
+    cutSelectedPages,
+    pastePages,
+    duplicateSelected,
+    addBlankPage,
     commitAnnotations,
     renderPage: renderEditorPage,
     showToast,
@@ -2089,6 +2239,7 @@
 
   if (els.rotateLeftButton) els.rotateLeftButton.addEventListener("click", () => rotateSelected(-90));
   if (els.rotateRightButton) els.rotateRightButton.addEventListener("click", () => rotateSelected(90));
+  if (els.newPageButton) els.newPageButton.addEventListener("click", addBlankPage);
   if (els.duplicateButton) els.duplicateButton.addEventListener("click", duplicateSelected);
   els.selectAllButton.addEventListener("click", selectAll);
   els.deletePageButton.addEventListener("click", deleteSelected);
@@ -2193,6 +2344,36 @@
     }
 
     if (typing) return;
+
+    if (event.key === "Insert") {
+      event.preventDefault();
+      addBlankPage();
+      return;
+    }
+
+    if (modifier && key === "c" && state.selected.size) {
+      event.preventDefault();
+      copySelectedPages();
+      return;
+    }
+
+    if (modifier && key === "x" && state.selected.size) {
+      event.preventDefault();
+      cutSelectedPages();
+      return;
+    }
+
+    if (modifier && key === "v" && state.pageClipboard.length) {
+      event.preventDefault();
+      pastePages();
+      return;
+    }
+
+    if (modifier && key === "d" && state.selected.size) {
+      event.preventDefault();
+      duplicateSelected();
+      return;
+    }
 
     if (modifier && key === "a" && state.pages.length) {
       event.preventDefault();

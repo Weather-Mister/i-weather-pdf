@@ -12,13 +12,15 @@
     selected: new Set(),
     lastSelectedId: null,
     activeTool: null,
-    view: "grid",
+    view: "viewer",
+    activePageId: null,
     dragCounter: 0,
     loadingFiles: false,
     exporting: false,
     enginesPromise: null,
     editorPromise: null,
     observer: null,
+    sidebarObserver: null,
     history: { undo: [], redo: [] },
     ignoreClick: false
   };
@@ -147,12 +149,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=3";
+      link.href = "./editor.css?v=4";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=3", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=4", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -472,6 +474,11 @@
 
   function renderWorkspace() {
     const count = state.documents.length;
+    if (state.pages.length && !getPageById(state.activePageId)) {
+      state.activePageId = state.pages[0].id;
+    }
+    if (!state.pages.length) state.activePageId = null;
+
     els.workspaceTitle.textContent =
       count === 1 ? state.documents[0].name : count + " PDFs in workspace";
     els.workspaceMeta.textContent =
@@ -483,8 +490,8 @@
       " · local only";
     els.pageCount.textContent = String(state.pages.length);
 
-    renderPages();
     renderSidebar();
+    renderPages();
     renderInspector();
     updateToolbarState();
   }
@@ -505,12 +512,26 @@
     if (canvas.parentElement) canvas.parentElement.classList.remove("is-rendered");
   }
 
-  function renderPages() {
-    if (state.observer) state.observer.disconnect();
-    els.pageGrid.replaceChildren();
-    els.pageGrid.classList.toggle("is-list", state.view === "list");
+  function saveCurrentEditor() {
+    if (window.iWeatherPDFEditor && typeof window.iWeatherPDFEditor.save === "function") {
+      window.iWeatherPDFEditor.save();
+    }
+  }
 
-    if (!state.pages.length) {
+  function renderPages() {
+    if (state.observer) {
+      state.observer.disconnect();
+      state.observer = null;
+    }
+
+    els.pageGrid.classList.remove("is-list");
+    els.pageGrid.classList.add("is-viewer");
+
+    if (!state.pages.length || !state.activePageId) {
+      if (window.iWeatherPDFEditor && typeof window.iWeatherPDFEditor.close === "function") {
+        window.iWeatherPDFEditor.close(false);
+      }
+      els.pageGrid.replaceChildren();
       const empty = document.createElement("div");
       empty.className = "workspace-empty";
       empty.innerHTML =
@@ -520,27 +541,36 @@
       return;
     }
 
-    state.pages.forEach((page, index) => {
-      els.pageGrid.append(createPageCard(page, index));
-    });
+    const pageId = state.activePageId;
+    els.pageGrid.replaceChildren();
+    const loading = document.createElement("div");
+    loading.className = "viewer-loading";
+    loading.innerHTML =
+      '<span class="viewer-spinner"></span><strong>Loading page…</strong><span>Preparing the full-page editor</span>';
+    els.pageGrid.append(loading);
 
-    state.observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const canvas = entry.target;
-          if (entry.isIntersecting) {
-            renderPageCanvas(canvas).catch((error) => console.error(error));
-          } else {
-            unloadPageCanvas(canvas);
-          }
+    ensureEditor()
+      .then((editorApi) => {
+        if (state.activePageId !== pageId || !getPageById(pageId)) return;
+        return editorApi.open(pageId, {
+          mount: els.pageGrid,
+          embedded: true
         });
-      },
-      { root: els.pageGrid, rootMargin: "700px 0px", threshold: 0.01 }
-    );
-
-    els.pageGrid.querySelectorAll("canvas[data-page-id]").forEach((canvas) => {
-      state.observer.observe(canvas);
-    });
+      })
+      .then(() => {
+        if (state.activePageId === pageId) setStatus("Page editor ready");
+      })
+      .catch((error) => {
+        console.error(error);
+        if (state.activePageId !== pageId) return;
+        els.pageGrid.replaceChildren();
+        const failed = document.createElement("div");
+        failed.className = "workspace-empty";
+        failed.innerHTML =
+          '<strong>Could not open this page</strong><span>Try selecting it again.</span>';
+        els.pageGrid.append(failed);
+        setStatus("Page editor failed");
+      });
   }
 
   function createPageCard(page, index) {
@@ -687,10 +717,10 @@
         canvas._renderGeneration !== generation
       ) return;
 
-      const maxWidth = state.view === "list" ? 500 : 230;
+      const maxWidth = 160;
       const parentWidth = Math.max(
-        120,
-        Math.min(canvas.parentElement.clientWidth || 210, maxWidth)
+        56,
+        Math.min(canvas.parentElement.clientWidth || 110, maxWidth)
       );
       const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const rotation = normalizeRotation((pdfPage.rotate || 0) + (model.rotation || 0));
@@ -730,12 +760,16 @@
     }
   }
 
-  function selectPage(id, event) {
+  function selectPage(id, event = {}) {
     const pageIndex = state.pages.findIndex((page) => page.id === id);
     if (pageIndex < 0) return;
 
-    const additive = event.metaKey || event.ctrlKey;
-    const range = event.shiftKey && state.lastSelectedId;
+    const previousActive = state.activePageId;
+    if (previousActive && previousActive !== id) saveCurrentEditor();
+    state.activePageId = id;
+
+    const additive = !!(event.metaKey || event.ctrlKey);
+    const range = !!(event.shiftKey && state.lastSelectedId);
 
     if (range) {
       const anchorIndex = state.pages.findIndex((page) => page.id === state.lastSelectedId);
@@ -760,14 +794,20 @@
     syncSelectionUI();
     renderInspector();
     updateToolbarState();
+
+    if (previousActive !== id) {
+      renderPages();
+      renderSidebar();
+    }
   }
 
   function syncSelectionUI() {
     $$(".page-card").forEach((card) => {
       card.classList.toggle("is-selected", state.selected.has(card.dataset.pageId));
     });
-    $$(".sidebar-page-row").forEach((row) => {
+    $(".sidebar-page-row").forEach((row) => {
       row.classList.toggle("is-selected", state.selected.has(row.dataset.pageId));
+      row.classList.toggle("is-active", state.activePageId === row.dataset.pageId);
     });
     updateToolbarState();
   }
@@ -786,19 +826,35 @@
 
   function renderSidebar() {
     if (!els.sidebarPages) return;
+    if (state.sidebarObserver) state.sidebarObserver.disconnect();
     els.sidebarPages.replaceChildren();
 
     state.pages.forEach((page, index) => {
       const doc = getDocumentById(page.docId);
-      const row = document.createElement("button");
-      row.type = "button";
+      const row = document.createElement("div");
       row.className = "sidebar-page-row";
       row.dataset.pageId = page.id;
       row.classList.toggle("is-selected", state.selected.has(page.id));
+      row.classList.toggle("is-active", state.activePageId === page.id);
+      row.setAttribute("role", "button");
+      row.tabIndex = 0;
 
-      const mini = document.createElement("span");
-      mini.className = "sidebar-mini-page";
-      mini.textContent = String(index + 1);
+      const thumb = document.createElement("div");
+      thumb.className = "sidebar-thumb-wrap";
+
+      const canvas = document.createElement("canvas");
+      canvas.dataset.pageId = page.id;
+      canvas.dataset.rendered = "false";
+      canvas.dataset.rendering = "false";
+      canvas.setAttribute("aria-label", "Page " + (index + 1) + " thumbnail");
+
+      const number = document.createElement("span");
+      number.className = "sidebar-thumb-number";
+      number.textContent = String(index + 1);
+
+      const skeleton = document.createElement("span");
+      skeleton.className = "sidebar-thumb-skeleton";
+      thumb.append(canvas, skeleton, number);
 
       const info = document.createElement("span");
       info.className = "sidebar-page-info";
@@ -814,15 +870,56 @@
         (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "");
 
       info.append(title, source);
-      row.append(mini, info);
+
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "sidebar-drag-handle";
+      handle.title = "Drag to reorder";
+      handle.setAttribute("aria-label", "Drag page " + (index + 1) + " to reorder");
+      handle.innerHTML =
+        '<svg viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/></svg>';
+      handle.addEventListener("pointerdown", (event) => startPointerReorder(event, page.id, handle));
+      handle.addEventListener("click", (event) => event.stopPropagation());
+
+      row.append(thumb, info, handle);
 
       row.addEventListener("click", (event) => {
+        if (state.ignoreClick || event.target.closest(".sidebar-drag-handle")) return;
         selectPage(page.id, event);
-        const card = els.pageGrid.querySelector('[data-page-id="' + page.id + '"]');
-        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectPage(page.id, event);
+        }
       });
 
       els.sidebarPages.append(row);
+    });
+
+    state.sidebarObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const canvas = entry.target;
+          if (entry.isIntersecting) {
+            renderPageCanvas(canvas).catch((error) => console.error(error));
+          } else {
+            unloadPageCanvas(canvas);
+          }
+        });
+      },
+      { root: els.sidebarPages, rootMargin: "260px 0px", threshold: 0.01 }
+    );
+
+    els.sidebarPages.querySelectorAll("canvas[data-page-id]").forEach((canvas) => {
+      state.sidebarObserver.observe(canvas);
+    });
+
+    requestAnimationFrame(() => {
+      const activeRow = els.sidebarPages.querySelector(
+        '.sidebar-page-row[data-page-id="' + state.activePageId + '"]'
+      );
+      if (activeRow) activeRow.scrollIntoView({ block: "nearest" });
     });
   }
 
@@ -942,6 +1039,7 @@
 
   function rotateSelected(delta) {
     if (!state.selected.size) return;
+    saveCurrentEditor();
     pushHistory();
     state.pages.forEach((page) => {
       if (state.selected.has(page.id)) {
@@ -957,6 +1055,7 @@
 
   function duplicateSelected() {
     if (!state.selected.size) return;
+    saveCurrentEditor();
     pushHistory();
 
     const selected = new Set(state.selected);
@@ -989,6 +1088,7 @@
 
   function deleteSelected() {
     if (!state.selected.size) return;
+    saveCurrentEditor();
     const count = state.selected.size;
     const removedIds = new Set(state.selected);
     pushHistory();
@@ -1022,6 +1122,7 @@
 
   function reorderPage(sourceId, targetId) {
     if (!sourceId || !targetId || sourceId === targetId) return;
+    saveCurrentEditor();
     const sourceIndex = state.pages.findIndex((page) => page.id === sourceId);
     let targetIndex = state.pages.findIndex((page) => page.id === targetId);
     if (sourceIndex < 0 || targetIndex < 0) return;
@@ -1037,6 +1138,7 @@
   function startPointerReorder(event, pageId, handle) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
+    event.stopPropagation();
 
     pointerDrag = {
       pageId,
@@ -1054,8 +1156,10 @@
       handle.setPointerCapture(event.pointerId);
     } catch (_) {}
 
-    const sourceCard = els.pageGrid.querySelector('[data-page-id="' + pageId + '"]');
-    if (sourceCard) sourceCard.classList.add("is-dragging");
+    const sourceRow = els.sidebarPages.querySelector(
+      '.sidebar-page-row[data-page-id="' + pageId + '"]'
+    );
+    if (sourceRow) sourceRow.classList.add("is-dragging");
 
     handle.addEventListener("pointermove", onPointerReorderMove);
     handle.addEventListener("pointerup", onPointerReorderEnd, { once: true });
@@ -1064,7 +1168,7 @@
 
   function runReorderAutoScroll() {
     if (!pointerDrag || !pointerDrag.autoScroll) return;
-    els.pageGrid.scrollTop += pointerDrag.autoScroll;
+    els.sidebarPages.scrollTop += pointerDrag.autoScroll;
     pointerDrag.raf = requestAnimationFrame(runReorderAutoScroll);
   }
 
@@ -1086,24 +1190,24 @@
       Math.abs(event.clientX - pointerDrag.startX) +
       Math.abs(event.clientY - pointerDrag.startY);
 
-    if (distance > 7) pointerDrag.moved = true;
+    if (distance > 6) pointerDrag.moved = true;
     if (!pointerDrag.moved) return;
 
-    const gridRect = els.pageGrid.getBoundingClientRect();
-    const edge = Math.min(90, Math.max(45, gridRect.height * 0.12));
-    if (event.clientY < gridRect.top + edge) {
-      setReorderAutoScroll(-12);
-    } else if (event.clientY > gridRect.bottom - edge) {
-      setReorderAutoScroll(12);
+    const railRect = els.sidebarPages.getBoundingClientRect();
+    const edge = Math.min(70, Math.max(36, railRect.height * 0.1));
+    if (event.clientY < railRect.top + edge) {
+      setReorderAutoScroll(-10);
+    } else if (event.clientY > railRect.bottom - edge) {
+      setReorderAutoScroll(10);
     } else {
       setReorderAutoScroll(0);
     }
 
     const element = document.elementFromPoint(event.clientX, event.clientY);
-    const target = element && element.closest ? element.closest(".page-card") : null;
+    const target = element && element.closest ? element.closest(".sidebar-page-row") : null;
     const targetId = target ? target.dataset.pageId : null;
 
-    $$(".page-card.drop-target").forEach((card) => card.classList.remove("drop-target"));
+    $$(".sidebar-page-row.drop-target").forEach((row) => row.classList.remove("drop-target"));
 
     if (targetId && targetId !== pointerDrag.pageId) {
       pointerDrag.targetId = targetId;
@@ -1119,8 +1223,9 @@
     const data = pointerDrag;
     if (data.raf) cancelAnimationFrame(data.raf);
     data.handle.removeEventListener("pointermove", onPointerReorderMove);
-    $$(".page-card.is-dragging, .page-card.drop-target").forEach((card) => {
-      card.classList.remove("is-dragging", "drop-target");
+
+    $$(".sidebar-page-row.is-dragging, .sidebar-page-row.drop-target").forEach((row) => {
+      row.classList.remove("is-dragging", "drop-target");
     });
 
     pointerDrag = null;
@@ -1276,7 +1381,7 @@
     return { width: cssWidth, height: cssHeight, rotation };
   }
 
-  function commitAnnotations(pageId, annotations, recordHistory = true) {
+  function commitAnnotations(pageId, annotations, recordHistory = true, quiet = false) {
     if (!getPageById(pageId)) return;
     if (recordHistory) pushHistory();
 
@@ -1284,7 +1389,7 @@
     if (cleaned.length) state.annotations[pageId] = cleaned;
     else delete state.annotations[pageId];
 
-    renderPages();
+    if (!quiet) renderPages();
     renderSidebar();
     renderInspector();
     updateToolbarState();
@@ -1295,24 +1400,17 @@
     const page = getPageById(pageId);
     if (!page) return;
 
+    if (state.activePageId && state.activePageId !== pageId) saveCurrentEditor();
+    state.activePageId = pageId;
     state.selected.clear();
     state.selected.add(pageId);
     state.lastSelectedId = pageId;
     state.activeTool = "edit";
     syncSelectionUI();
+    renderSidebar();
     renderInspector();
     updateToolbarState();
-
-    try {
-      setStatus("Opening free editor…");
-      const editor = await ensureEditor();
-      await editor.open(pageId);
-      setStatus("Editor ready");
-    } catch (error) {
-      console.error(error);
-      setStatus("Editor failed to load");
-      showToast("Could not load free edit mode.", 2800);
-    }
+    renderPages();
   }
 
   window.iWeatherPDFEditorHost = {
@@ -1346,6 +1444,7 @@
 
   els.selectAllButton.addEventListener("click", selectAll);
   els.exportButton.addEventListener("click", () => {
+    saveCurrentEditor();
     const pages =
       state.activeTool === "split" && state.selected.size
         ? selectedPages()
@@ -1368,15 +1467,12 @@
       if (state.activeTool === "combine") {
         showToast("All workspace pages already combine on export.");
       } else if (state.activeTool === "reorder") {
-        showToast("Drag a page by its six-dot handle.");
+        showToast("Drag pages in the left sidebar to reorder them.");
       } else if (state.activeTool === "split") {
-        showToast("Select pages, then Export selected.");
+        showToast("Select pages in the left sidebar, then Export selected.");
       } else if (state.activeTool === "edit") {
-        if (state.selected.size === 1) {
-          openPageEditor([...state.selected][0]);
-        } else {
-          showToast("Select one page to open free edit.");
-        }
+        if (state.activePageId) openPageEditor(state.activePageId);
+        showToast("Edit directly on the full page in the center.");
       }
 
       renderInspector();

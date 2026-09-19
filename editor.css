@@ -188,3 +188,41 @@
   .pdf-editor-props select.pdf-editor-btn{display:none}
   .pdf-editor-embed .pdf-editor-stage-wrap{padding:8px 5px 30px}
 }
+
+
+/* Zoom and pan v10 */
+.pdf-editor-stage-wrap{
+  display:block;
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.pdf-editor-stage{
+  margin:0 auto;
+  flex:none;
+}
+.pdf-editor-zoom{
+  flex:none;display:flex;align-items:center;gap:1px;padding:0 5px;
+  border-left:1px solid #e1e1db;border-right:1px solid #e1e1db;
+}
+.pdf-editor-icon-only{
+  width:30px;padding:0;border:0;background:transparent;
+}
+.pdf-editor-icon-only .pdf-editor-button-label{display:none}
+.pdf-editor-zoom-value{
+  min-width:44px;padding:0 6px;border:0;background:transparent;font-variant-numeric:tabular-nums
+}
+.pdf-editor-zoom .pdf-editor-btn:hover:not(:disabled){background:#efefeb}
+.pdf-editor-props[hidden]{display:none!important}
+.pdf-editor-stage-wrap.is-pan-ready .pdf-editor-overlay,
+.pdf-editor-stage-wrap.is-zoomed .pdf-editor-overlay.select{cursor:grab}
+.pdf-editor-overlay.panning{cursor:grabbing!important}
+@media(max-width:760px){
+  .pdf-editor-zoom{padding:0 2px}
+  .pdf-editor-icon-only{width:28px}
+  .pdf-editor-zoom-value{min-width:38px;padding:0 3px}
+}
+@media(max-width:520px){
+  .pdf-editor-zoom-value{min-width:34px;font-size:8.5px}
+  .pdf-editor-props{display:none!important}
+}

@@ -379,6 +379,38 @@
     ctx.restore();
   }
 
+  function renderTextHitLayer() {
+    if (!active || !active.textHitLayer) return;
+    active.textHitLayer.replaceChildren();
+    active.textHitLayer.classList.toggle("is-active", active.tool === "edittext");
+
+    if (active.tool !== "edittext" || !Array.isArray(active.textRuns)) return;
+    var edited = editedTextKeys();
+
+    active.textRuns.forEach(function (run) {
+      if (edited.has(run.key)) return;
+      var rect = rectToDisplay(run, active.rotation);
+      var hit = document.createElement("button");
+      hit.type = "button";
+      hit.className = "pdf-editor-text-hit";
+      hit.style.left = (rect.x * 100) + "%";
+      hit.style.top = (rect.y * 100) + "%";
+      hit.style.width = (rect.w * 100) + "%";
+      hit.style.height = (rect.h * 100) + "%";
+      hit.title = run.text;
+      hit.setAttribute("aria-label", "Edit text: " + run.text.slice(0, 120));
+      hit.addEventListener("pointerdown", function (event) {
+        event.stopPropagation();
+      });
+      hit.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        promptTextReplacement(run, null);
+      });
+      active.textHitLayer.appendChild(hit);
+    });
+  }
+
   function fitExistingTextPx(ctx, text, maxWidth, baseSize, item) {
     var floor = Math.max(5, baseSize * 0.6);
     var size = Math.max(floor, baseSize);
@@ -491,9 +523,11 @@
     pageCanvas.className = "pdf-editor-page";
     var overlay = document.createElement("canvas");
     overlay.className = "pdf-editor-overlay";
+    var textHitLayer = document.createElement("div");
+    textHitLayer.className = "pdf-editor-text-hit-layer";
     var status = document.createElement("div");
     status.className = "pdf-editor-status";
-    stage.append(pageCanvas, overlay, status);
+    stage.append(pageCanvas, overlay, textHitLayer, status);
     stageWrap.append(stage);
 
     var color = document.createElement("input");
@@ -544,6 +578,7 @@
       stageWrap: stageWrap,
       pageCanvas: pageCanvas,
       overlay: overlay,
+      textHitLayer: textHitLayer,
       status: status,
       annotations: h.getAnnotations(pageId),
       undo: [],
@@ -945,6 +980,7 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawAnnotations(ctx, active.annotations, canvas.width, canvas.height, active.rotation, active.selectedId, true);
     drawExistingTextHotspots(ctx, canvas.width, canvas.height);
+    renderTextHitLayer();
   }
 
   function drawAnnotations(ctx, annotations, width, height, rotation, selectedId, allowAsyncImages) {

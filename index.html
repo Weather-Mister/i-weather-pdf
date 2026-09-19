@@ -7,7 +7,7 @@
   <meta name="description" content="A fast, private, browser-based PDF workspace.">
   <title>iWeather PDF</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=8">
+  <link rel="stylesheet" href="./styles.css?v=9">
 </head>
 <body>
   <div class="app-shell">
@@ -126,6 +126,10 @@
               <span id="workspaceMeta">PDFs loaded locally</span>
             </div>
             <div class="canvas-actions">
+              <button class="delete-page-button" id="deletePageButton" type="button" disabled title="Delete current page">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m8 10 .5 8h7l.5-8"/><path d="M10.5 11.5v4M13.5 11.5v4"/></svg>
+                <span>Delete page</span>
+              </button>
               <button class="secondary-button" id="selectAllButton" disabled>Select all</button>
               <button class="export-button" id="exportButton" disabled>
                 <svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 20h14"/></svg>
@@ -172,6 +176,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=8" defer></script>
+  <script src="./app.js?v=9" defer></script>
 </body>
 </html>

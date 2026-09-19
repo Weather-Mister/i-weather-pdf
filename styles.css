@@ -476,7 +476,7 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(231,74,59,.22);outli
   .document-strip{padding:4px 6px}
   .document-chip{height:31px}
   .strip-add{width:31px;height:31px}
-  .loaded-state{grid-template-columns:78px minmax(0,1fr)!important}
+  .loaded-state{grid-template-columns:84px minmax(0,1fr)!important}
   .sidebar{padding:6px 4px!important}
   .sidebar-reorder-hint{margin-bottom:5px}
   .sidebar-page-row{padding:4px}

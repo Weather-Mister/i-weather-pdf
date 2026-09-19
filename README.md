@@ -96,3 +96,10 @@ Improve direct editing ergonomics: richer text controls, resize handles for plac
 The viewer keeps runtime work deliberately small: PDF.js is loaded only after a PDF is opened, the free editor is loaded only when the page workspace needs it, and pdf-lib is loaded only when an export is requested. Sidebar thumbnails are lazy-rendered and off-screen canvases are released. Large inserted images are resized before being stored in edit history.
 
 A zero-dependency audit runs before every GitHub Pages deployment via `node tests/audit.mjs`.
+
+
+## Existing-text editing
+
+The page editor can inspect selectable PDF text only when **Edit text** is activated. Existing lines can be replaced or deleted in place. On export, the app attempts to remove the original PDF string token from the page content stream and writes the replacement as vector PDF text. If the source PDF uses an encoding that cannot be safely rewritten, that individual edit falls back to a visual background repair rather than risking document corruption.
+
+The content-stream string scanning/rewrite approach is adapted from **PDF Studio** by kuldeepcodes (MIT License, Copyright © 2026 kuldeepcodes). See `THIRD_PARTY_NOTICES.md`.

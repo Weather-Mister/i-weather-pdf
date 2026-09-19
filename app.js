@@ -855,6 +855,10 @@
       const skeleton = document.createElement("span");
       skeleton.className = "sidebar-thumb-skeleton";
       thumb.append(canvas, skeleton, number);
+      thumb.addEventListener("pointerdown", (event) => {
+        startPointerReorder(event, page.id, thumb, true);
+      });
+      thumb.addEventListener("click", (event) => event.stopPropagation());
 
       const info = document.createElement("span");
       info.className = "sidebar-page-info";
@@ -962,7 +966,7 @@
         text.textContent = "All pages in this workspace export as one PDF. Add more PDFs at any time.";
       } else if (state.activeTool === "reorder") {
         title.textContent = "Drag to reorder";
-        text.textContent = "Grab the six-dot handle on any page and drop it onto another page.";
+        text.textContent = "Drag page thumbnails in the left sidebar into the order you want.";
       } else if (state.activeTool === "edit") {
         title.textContent = "Select a page to edit";
         text.textContent = "Add text, pen marks, highlights, shapes, whiteout, or images directly on a page.";
@@ -1135,7 +1139,7 @@
     setStatus("Page order updated");
   }
 
-  function startPointerReorder(event, pageId, handle) {
+  function startPointerReorder(event, pageId, handle, selectOnTap = false) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1149,7 +1153,8 @@
       moved: false,
       autoScroll: 0,
       raf: null,
-      handle
+      handle,
+      selectOnTap
     };
 
     try {
@@ -1235,6 +1240,11 @@
       setTimeout(() => {
         state.ignoreClick = false;
       }, 0);
+    }
+
+    if (!data.moved && data.selectOnTap) {
+      selectPage(data.pageId, event);
+      return;
     }
 
     if (data.moved && data.targetId) {

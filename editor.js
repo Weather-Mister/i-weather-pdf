@@ -1447,8 +1447,9 @@
         angle: normRotation(-active.rotation),
         src: src
       });
-      active.selectedId = active.annotations[active.annotations.length - 1].id;
+      var insertedId = active.annotations[active.annotations.length - 1].id;
       setTool("select");
+      active.selectedId = insertedId;
       draw();
     });
 

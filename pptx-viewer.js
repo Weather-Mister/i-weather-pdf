@@ -1,5 +1,5 @@
 (() => {
-  const ENGINE_URL = "https://esm.sh/omni-doc-viewer@0.1.3?bundle&target=es2022";
+  const ENGINE_URL = "https://cdn.jsdelivr.net/npm/omni-doc-viewer@0.1.3/+esm";
   let enginePromise = null;
   let active = null;
 

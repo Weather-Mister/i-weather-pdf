@@ -64,6 +64,7 @@
   let toastTimer;
   let pointerDrag = null;
   const textRunCache = new Map();
+  const imageRunCache = new Map();
 
   function uid(prefix) {
     return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
@@ -508,6 +509,7 @@
     removedPageIds.forEach((pageId) => {
       delete state.annotations[pageId];
       textRunCache.delete(pageId);
+      imageRunCache.delete(pageId);
     });
 
     for (const selectedId of [...state.selected]) {
@@ -1108,6 +1110,7 @@
     removedIds.forEach((pageId) => {
       delete state.annotations[pageId];
       textRunCache.delete(pageId);
+      imageRunCache.delete(pageId);
     });
 
     state.selected.clear();
@@ -1287,12 +1290,16 @@
   }
 
   function classifyTextFont(fontName, fontFamily) {
-    const source = ((fontName || "") + " " + (fontFamily || "")).toLowerCase();
+    const rawFamily = String(fontFamily || "").trim();
+    const rawName = String(fontName || "").trim();
+    const source = (rawName + " " + rawFamily).toLowerCase();
     let family = "sans";
     if (/times|serif|georgia|garamond|cambria/.test(source)) family = "serif";
     else if (/courier|mono|consol|menlo/.test(source)) family = "mono";
     return {
       family,
+      fontFamily: rawFamily,
+      fontName: rawName,
       bold: /bold|black|heavy|semib|demi/.test(source),
       italic: /italic|oblique/.test(source)
     };
@@ -1396,6 +1403,8 @@
           baseline: line.baseline / viewport.height,
           size: line.size / viewport.height,
           family: line.font.family,
+          fontFamily: line.font.fontFamily,
+          fontName: line.font.fontName,
           bold: line.font.bold,
           italic: line.font.italic,
           uniqueOriginal: (counts.get(original.trim()) || 0) === 1
@@ -1406,6 +1415,104 @@
     if (textRunCache.size > 80) {
       const oldest = textRunCache.keys().next().value;
       if (oldest) textRunCache.delete(oldest);
+    }
+    return deepClone(result);
+  }
+
+  async function getPageImageRuns(pageId) {
+    if (imageRunCache.has(pageId)) return deepClone(imageRunCache.get(pageId));
+
+    const model = getPageById(pageId);
+    if (!model) return [];
+    const doc = getDocumentById(model.docId);
+    if (!doc) return [];
+
+    const page = await doc.pdfJs.getPage(model.sourceIndex + 1);
+    if (!page || typeof page.getOperatorList !== "function") return [];
+
+    const opList = await page.getOperatorList();
+    const viewport = page.getViewport({ scale: 1, rotation: 0 });
+    const OPS = window.pdfjsLib.OPS || {};
+    const Util = window.pdfjsLib.Util;
+    if (!Util || typeof Util.transform !== "function") return [];
+
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [];
+    const result = [];
+
+    function point(matrix, x, y) {
+      return {
+        x: matrix[0] * x + matrix[2] * y + matrix[4],
+        y: matrix[1] * x + matrix[3] * y + matrix[5]
+      };
+    }
+
+    const imageOps = new Set([
+      OPS.paintImageXObject,
+      OPS.paintJpegXObject,
+      OPS.paintInlineImageXObject,
+      OPS.paintImageMaskXObject
+    ].filter((value) => Number.isFinite(value)));
+
+    for (let i = 0; i < opList.fnArray.length; i++) {
+      const fn = opList.fnArray[i];
+      const args = opList.argsArray[i] || [];
+
+      if (fn === OPS.save) {
+        stack.push(ctm.slice());
+        continue;
+      }
+      if (fn === OPS.restore) {
+        ctm = stack.length ? stack.pop() : [1, 0, 0, 1, 0, 0];
+        continue;
+      }
+      if (fn === OPS.transform && args.length >= 6) {
+        ctm = Util.transform(ctm, args.slice(0, 6));
+        continue;
+      }
+      if (!imageOps.has(fn)) continue;
+
+      const matrix = Util.transform(viewport.transform, ctm);
+      const corners = [
+        point(matrix, 0, 0),
+        point(matrix, 1, 0),
+        point(matrix, 0, 1),
+        point(matrix, 1, 1)
+      ];
+      const xs = corners.map((p) => p.x);
+      const ys = corners.map((p) => p.y);
+      const left = Math.min(...xs);
+      const right = Math.max(...xs);
+      const top = Math.min(...ys);
+      const bottom = Math.max(...ys);
+
+      const x = Math.max(0, left / viewport.width);
+      const y = Math.max(0, top / viewport.height);
+      const w = Math.min(1 - x, Math.abs(right - left) / viewport.width);
+      const h = Math.min(1 - y, Math.abs(bottom - top) / viewport.height);
+
+      if (
+        !Number.isFinite(x + y + w + h) ||
+        w < 0.01 ||
+        h < 0.01 ||
+        w * h < 0.0003
+      ) continue;
+
+      result.push({
+        key: "img:" + i,
+        x,
+        y,
+        w,
+        h
+      });
+
+      if (result.length >= 120) break;
+    }
+
+    imageRunCache.set(pageId, deepClone(result));
+    if (imageRunCache.size > 80) {
+      const oldest = imageRunCache.keys().next().value;
+      if (oldest) imageRunCache.delete(oldest);
     }
     return deepClone(result);
   }
@@ -1950,6 +2057,7 @@
     },
     getAnnotations,
     getPageTextRuns,
+    getPageImageRuns,
     commitAnnotations,
     renderPage: renderEditorPage,
     showToast,

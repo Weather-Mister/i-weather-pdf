@@ -47,8 +47,11 @@ const hostMethods = [
   "uid","normalizeRotation","getPage","getPageIndex","getDocumentName",
   "getAnnotations","commitAnnotations","renderPage","showToast","setStatus"
 ];
+const hostStart = app.indexOf("window.iWeatherPDFEditorHost");
+const hostEnd = app.indexOf("function openPicker", hostStart);
+const hostBlock = hostStart >= 0 && hostEnd > hostStart ? app.slice(hostStart, hostEnd) : "";
 for (const method of hostMethods) {
-  assert(app.includes(method + ":" ) || app.includes(method + ","), "editor host method missing: " + method);
+  assert(new RegExp("\\b" + method + "\\b").test(hostBlock), "editor host method missing: " + method);
 }
 
 const editorCalls = [...editor.matchAll(/host\(\)\.([A-Za-z0-9_]+)/g)].map((match) => match[1]);

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f5">
+  <meta name="description" content="A fast, private, browser-based PDF workspace.">
+  <title>iWeather PDF</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="iWeather PDF home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6.75 3.5h7.4L18.5 7.85v12.4H6.75z"/><path d="M14 3.5v4.65h4.5"/></svg>
+        </span>
+        <span class="brand-text">iWeather <strong>PDF</strong></span>
+      </a>
+
+      <nav class="primary-actions" aria-label="PDF actions">
+        <button class="tool-button" data-tool="split" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M3 16h5M16 8h5M16 16h5"/></svg>
+          <span>Split</span>
+        </button>
+        <button class="tool-button" data-tool="combine" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="8" height="14" rx="1.5"/><rect x="12.5" y="5" width="8" height="14" rx="1.5"/><path d="M9 12h6"/></svg>
+          <span>Combine</span>
+        </button>
+        <button class="tool-button" data-tool="reorder" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h12M8 12h12M8 17h12"/><path d="M3.5 7h.01M3.5 12h.01M3.5 17h.01"/></svg>
+          <span>Reorder</span>
+        </button>
+        <button class="tool-button" data-tool="edit" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.4-1 10-10a2.15 2.15 0 0 0-3.05-3.05l-10 10z"/><path d="m13.9 7.4 3.05 3.05"/></svg>
+          <span>Edit</span>
+        </button>
+      </nav>
+
+      <div class="topbar-right">
+        <div class="history-buttons" aria-label="History">
+          <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
+            <svg viewBox="0 0 24 24"><path d="M9 8 4.5 12 9 16"/><path d="M5 12h8.5a5.5 5.5 0 0 1 0 11"/></svg>
+          </button>
+          <button class="icon-button" id="redoButton" title="Redo" aria-label="Redo" disabled>
+            <svg viewBox="0 0 24 24"><path d="m15 8 4.5 4-4.5 4"/><path d="M19 12h-8.5a5.5 5.5 0 0 0 0 11"/></svg>
+          </button>
+        </div>
+        <button class="add-button" id="addButton">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Add PDFs</span>
+        </button>
+        <input id="fileInput" type="file" accept="application/pdf,.pdf" multiple hidden>
+      </div>
+    </header>
+
+    <section class="document-strip" id="documentStrip" aria-label="Imported PDFs" hidden>
+      <div class="document-list" id="documentList"></div>
+      <button class="strip-add" id="stripAddButton" aria-label="Add another PDF" title="Add PDF">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </section>
+
+    <main class="workspace" id="workspace">
+      <section class="empty-state" id="emptyState">
+        <div class="drop-card" id="dropCard">
+          <div class="drop-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32">
+              <path d="M8.5 3.5h9l6 6v19h-15z"/>
+              <path d="M17.5 3.5v6h6"/>
+              <path d="M16 14v8M12.5 18.5 16 22l3.5-3.5"/>
+            </svg>
+          </div>
+          <h1>Drop PDFs here</h1>
+          <p>Add one or many files. Everything stays on this device.</p>
+          <button class="choose-button" id="chooseButton">Choose PDFs</button>
+          <div class="drop-hint">or drag files anywhere into this window</div>
+        </div>
+
+        <div class="feature-row" aria-label="Workspace capabilities">
+          <div class="feature">
+            <span class="feature-icon"><svg viewBox="0 0 24 24"><path d="M8 3v18M16 3v18"/></svg></span>
+            <div><strong>Split</strong><span>Keep only the pages you want.</span></div>
+          </div>
+          <div class="feature">
+            <span class="feature-icon"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="8" height="14" rx="1.5"/><rect x="12.5" y="5" width="8" height="14" rx="1.5"/></svg></span>
+            <div><strong>Combine</strong><span>Mix pages from multiple PDFs.</span></div>
+          </div>
+          <div class="feature">
+            <span class="feature-icon"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg></span>
+            <div><strong>Reorder</strong><span>Drag pages into any order.</span></div>
+          </div>
+          <div class="feature">
+            <span class="feature-icon"><svg viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16z"/></svg></span>
+            <div><strong>Edit</strong><span>Annotate and change page content.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="loaded-state" id="loadedState" hidden>
+        <aside class="sidebar">
+          <div class="sidebar-heading">
+            <span>Pages</span>
+            <span class="page-count" id="pageCount">0</span>
+          </div>
+          <div class="view-switcher" role="group" aria-label="Page view">
+            <button class="view-button is-active" data-view="grid" aria-label="Grid view" title="Grid view">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+            </button>
+            <button class="view-button" data-view="list" aria-label="List view" title="List view">
+              <svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><rect x="4" y="4.5" width="2.5" height="3" rx=".5"/><rect x="4" y="10.5" width="2.5" height="3" rx=".5"/><rect x="4" y="16.5" width="2.5" height="3" rx=".5"/></svg>
+            </button>
+          </div>
+          <div class="sidebar-note">Page thumbnails will appear here when the PDF engine is connected.</div>
+        </aside>
+
+        <section class="canvas-area">
+          <div class="canvas-toolbar">
+            <div>
+              <strong id="workspaceTitle">Workspace</strong>
+              <span id="workspaceMeta">PDFs loaded locally</span>
+            </div>
+            <div class="canvas-actions">
+              <button class="secondary-button" id="selectAllButton" disabled>Select all</button>
+              <button class="export-button" id="exportButton" disabled>
+                <svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 20h14"/></svg>
+                Export PDF
+              </button>
+            </div>
+          </div>
+
+          <div class="page-grid" id="pageGrid">
+            <div class="engine-placeholder">
+              <div class="placeholder-stack" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </div>
+              <h2>Files added</h2>
+              <p>The lightweight workspace shell is ready. Next we’ll connect the PDF engine so every page renders here as a draggable thumbnail.</p>
+              <button class="secondary-button" id="addMoreButton">Add another PDF</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="inspector" id="inspector">
+          <div class="inspector-heading">Inspector</div>
+          <div class="inspector-empty">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+            <strong>No page selected</strong>
+            <span>Select a page to see editing controls.</span>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <div class="privacy-status"><span class="status-dot"></span>Local-only workspace</div>
+      <div id="statusText">Ready</div>
+    </footer>
+
+    <div class="drop-overlay" id="dropOverlay" aria-hidden="true">
+      <div>
+        <svg viewBox="0 0 32 32"><path d="M8.5 3.5h9l6 6v19h-15z"/><path d="M17.5 3.5v6h6"/><path d="M16 14v8M12.5 18.5 16 22l3.5-3.5"/></svg>
+        <strong>Drop PDFs to add them</strong>
+        <span>Existing files will stay in the workspace.</span>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+  <script src="./app.js" defer></script>
+</body>
+</html>

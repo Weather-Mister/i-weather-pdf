@@ -144,15 +144,17 @@
     return button;
   }
 
-  async function open(pageId) {
-    if (active) close(false);
+  async function open(pageId, options) {
+    options = options || {};
+    if (active) close(!!active.embedded);
 
     var h = host();
     var page = h.getPage(pageId);
     if (!page) return;
 
+    var embedded = !!(options.embedded && options.mount);
     var backdrop = document.createElement("div");
-    backdrop.className = "pdf-editor-backdrop";
+    backdrop.className = embedded ? "pdf-editor-embed" : "pdf-editor-backdrop";
 
     var shell = document.createElement("div");
     shell.className = "pdf-editor-shell";
@@ -171,13 +173,17 @@
     var titleMeta = document.createElement("span");
     titleMeta.textContent = "Page " + (h.getPageIndex(pageId) + 1) + " · Free edit";
     title.append(titleStrong, titleMeta);
-    left.append(closeButton, title);
+    if (!embedded) left.append(closeButton, title);
+    else left.append(title);
 
     var right = document.createElement("div");
     right.className = "pdf-editor-top-right";
     var undoButton = makeButton("Undo", "pdf-editor-btn", localUndo);
     var redoButton = makeButton("Redo", "pdf-editor-btn", localRedo);
-    var doneButton = makeButton("Done", "pdf-editor-btn primary", function () { close(true); });
+    var doneButton = makeButton(embedded ? "Save" : "Done", "pdf-editor-btn primary", function () {
+      if (embedded) saveCurrent();
+      else close(true);
+    });
     right.append(undoButton, redoButton, doneButton);
     topbar.append(left, right);
 
@@ -264,7 +270,9 @@
       toolButtons: [],
       imageInput: imageInput,
       rotation: normRotation(page.rotation || 0),
-      pointer: null
+      pointer: null,
+      embedded: embedded,
+      mount: options.mount || null
     };
 
     toolList.append(
@@ -281,8 +289,12 @@
 
     shell.append(topbar, tools, stageWrap);
     backdrop.append(shell);
-    document.body.append(backdrop);
-    document.body.classList.add("pdf-editor-open");
+    if (embedded) {
+      options.mount.replaceChildren(backdrop);
+    } else {
+      document.body.append(backdrop);
+      document.body.classList.add("pdf-editor-open");
+    }
 
     overlay.addEventListener("pointerdown", pointerDown);
     overlay.addEventListener("pointermove", pointerMove);
@@ -323,8 +335,10 @@
     window.addEventListener("keydown", keydown, true);
 
     try {
-      var maxWidth = Math.min(1100, Math.max(300, window.innerWidth - 70));
-      var maxHeight = Math.max(420, window.innerHeight - 150);
+      var mountWidth = embedded ? Math.max(260, options.mount.clientWidth - 36) : window.innerWidth - 70;
+      var mountHeight = embedded ? Math.max(320, options.mount.clientHeight - 118) : window.innerHeight - 150;
+      var maxWidth = Math.min(1200, Math.max(260, mountWidth));
+      var maxHeight = Math.max(320, mountHeight);
       var dims = await h.renderPage(pageId, pageCanvas, maxWidth, maxHeight);
       if (!active || active.pageId !== pageId) return;
       stage.style.width = dims.width + "px";
@@ -343,13 +357,39 @@
     }
   }
 
+  function hasChanges(current) {
+    if (!current) return false;
+    try {
+      return JSON.stringify(current.annotations || []) !== JSON.stringify(current.original || []);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function saveCurrent() {
+    if (!active) return false;
+    if (!hasChanges(active)) {
+      active.status.textContent = "Saved";
+      return false;
+    }
+    host().commitAnnotations(active.pageId, active.annotations, true, !!active.embedded);
+    active.original = copy(active.annotations);
+    active.undo = [];
+    active.redo = [];
+    updateUndoRedo();
+    active.status.textContent = "Saved";
+    return true;
+  }
+
   function close(save) {
     if (!active) return;
     var current = active;
     window.removeEventListener("keydown", keydown, true);
-    if (save) host().commitAnnotations(current.pageId, current.annotations, true);
+    if (save && hasChanges(current)) {
+      host().commitAnnotations(current.pageId, current.annotations, true, !!current.embedded);
+    }
     current.backdrop.remove();
-    document.body.classList.remove("pdf-editor-open");
+    if (!current.embedded) document.body.classList.remove("pdf-editor-open");
     active = null;
   }
 
@@ -829,6 +869,8 @@
 
   window.iWeatherPDFEditor = {
     open: open,
+    close: close,
+    save: saveCurrent,
     exportOverlay: exportOverlay
   };
 })();

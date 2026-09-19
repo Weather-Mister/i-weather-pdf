@@ -1237,7 +1237,7 @@
     zoomGroup.append(zoomOutButton, zoomValueButton, zoomInButton);
 
     var stageWrap = document.createElement("div");
-    stageWrap.className = "pdf-editor-stage-wrap";
+    stageWrap.className = "pdf-editor-stage-wrap is-initializing";
     var stage = document.createElement("div");
     stage.className = "pdf-editor-stage";
     var pageCanvas = document.createElement("canvas");
@@ -1380,6 +1380,8 @@
       zoomRenderGeneration: 0,
       resizeTimer: null,
       resizeObserver: null,
+      lastWrapWidth: 0,
+      lastWrapHeight: 0,
       spacePan: false,
       embedded: embedded,
       mount: options.mount || null
@@ -1459,17 +1461,29 @@
     setTool("select");
 
     active.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(function () {
-      if (!active || active.zoom !== 1) return;
+      if (!active || active.zoom !== 1 || active.stageWrap.classList.contains("is-initializing")) return;
+      var width = active.stageWrap.clientWidth;
+      var height = active.stageWrap.clientHeight;
+      if (
+        Math.abs(width - active.lastWrapWidth) < 4 &&
+        Math.abs(height - active.lastWrapHeight) < 4
+      ) return;
+
+      active.lastWrapWidth = width;
+      active.lastWrapHeight = height;
       clearTimeout(active.resizeTimer);
       active.resizeTimer = setTimeout(function () {
         if (active && active.zoom === 1) fitPage();
-      }, 180);
+      }, 220);
     }) : null;
-    if (active.resizeObserver) active.resizeObserver.observe(stageWrap);
 
     try {
       await fitPage();
       if (!active || active.pageId !== pageId) return;
+      active.lastWrapWidth = stageWrap.clientWidth;
+      active.lastWrapHeight = stageWrap.clientHeight;
+      stageWrap.classList.remove("is-initializing");
+      if (active.resizeObserver) active.resizeObserver.observe(stageWrap);
       updateUndoRedo();
       draw();
     } catch (error) {

@@ -656,6 +656,100 @@
     });
   }
 
+  function beginInlineNewText(displayPoint, canonical, minDim) {
+    if (!active || !active.textHitLayer) return;
+
+    if (active.directTextEditor && active.directTextEditor.isConnected) {
+      active.directTextEditor.blur();
+    }
+
+    var editor = document.createElement("span");
+    editor.className = "pdf-editor-direct-text is-new";
+    editor.contentEditable = "true";
+    editor.spellcheck = false;
+    editor.setAttribute("role", "textbox");
+    editor.setAttribute("aria-label", "New PDF text");
+    editor.dataset.placeholder = "Type text";
+    editor.style.left = (displayPoint.x * 100) + "%";
+    editor.style.top = (displayPoint.y * 100) + "%";
+    editor.style.minWidth = "24px";
+    editor.style.maxWidth = Math.max(
+      40,
+      (1 - displayPoint.x) * active.stage.clientWidth
+    ) + "px";
+    editor.style.minHeight = Math.max(16, Number(active.size.value) * 1.1) + "px";
+    editor.style.color = active.color.value;
+    editor.style.background = "transparent";
+    editor.style.font = "600 " + Number(active.size.value) + "px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
+    editor.style.lineHeight = "1.15";
+
+    active.textHitLayer.appendChild(editor);
+    active.directTextEditor = editor;
+    active.status.textContent = "Type directly on the page · Enter to place · Esc to cancel";
+
+    requestAnimationFrame(function () {
+      if (!editor.isConnected) return;
+      editor.focus({ preventScroll: true });
+    });
+
+    var closed = false;
+    function finish(commit) {
+      if (closed) return;
+      closed = true;
+      var value = (editor.textContent || "").replace(/\u00a0/g, " ").replace(/\r?\n/g, " ").trim();
+      editor.remove();
+      if (active && active.directTextEditor === editor) {
+        active.directTextEditor = null;
+      }
+
+      if (commit && value && active) {
+        pushLocalHistory();
+        var item = {
+          id: host().uid("edit"),
+          type: "text",
+          x: canonical.x,
+          y: canonical.y,
+          text: value.slice(0, 2000),
+          color: active.color.value,
+          size: Number(active.size.value) / Math.max(1, minDim),
+          angle: normRotation(-active.rotation)
+        };
+        active.annotations.push(item);
+        active.selectedId = item.id;
+        active.status.textContent = "Text added";
+        draw();
+      } else if (active) {
+        active.status.textContent = commit ? "Type something to add text" : "Text cancelled";
+        renderTextHitLayer();
+      }
+    }
+
+    editor.addEventListener("pointerdown", function (event) {
+      event.stopPropagation();
+    });
+    editor.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    editor.addEventListener("paste", function (event) {
+      event.preventDefault();
+      var text = (event.clipboardData || window.clipboardData).getData("text");
+      document.execCommand("insertText", false, text.replace(/\r?\n/g, " "));
+    });
+    editor.addEventListener("keydown", function (event) {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    editor.addEventListener("blur", function () {
+      finish(true);
+    });
+  }
+
   function drawExistingTextHotspots(ctx, width, height) {
     if (!active || active.tool !== "edittext" || !Array.isArray(active.textRuns)) return;
     var edited = editedTextKeys();
@@ -1179,21 +1273,7 @@
     }
 
     if (active.tool === "text") {
-      var text = window.prompt("Text to add:");
-      if (!text) return;
-      pushLocalHistory();
-      active.annotations.push({
-        id: host().uid("edit"),
-        type: "text",
-        x: canonical.x,
-        y: canonical.y,
-        text: text.slice(0, 2000),
-        color: active.color.value,
-        size: Number(active.size.value) / Math.max(1, minDim),
-        angle: normRotation(-active.rotation)
-      });
-      active.selectedId = active.annotations[active.annotations.length - 1].id;
-      draw();
+      beginInlineNewText(displayPoint, canonical, minDim);
       return;
     }
 

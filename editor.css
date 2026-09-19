@@ -105,9 +105,21 @@
 .pdf-editor-direct-text{
   position:absolute;z-index:5;display:inline-block;width:max-content;box-sizing:border-box;
   margin:0;padding:0;border:0;border-radius:0;outline:0;box-shadow:none;
-  white-space:pre;overflow:visible;cursor:text;caret-color:#1769d2;
+  white-space:pre;overflow:visible;cursor:text;caret-color:#1769d2;pointer-events:auto;
   text-decoration:underline;text-decoration-color:rgba(47,126,230,.5);
   text-decoration-thickness:1px;text-underline-offset:2px
+}
+.pdf-editor-direct-text.is-new{
+  min-width:24px;padding:1px 2px;border-radius:3px;
+  text-decoration-color:rgba(217,169,0,.55);
+  background:rgba(255,245,189,.32)!important
+}
+.pdf-editor-direct-text.is-new:empty::before{
+  content:attr(data-placeholder);color:#9b8a50;opacity:.72;pointer-events:none
+}
+.pdf-editor-direct-text.is-new:focus{
+  box-shadow:0 0 0 1px rgba(217,169,0,.35);
+  text-decoration-color:#d9a900
 }
 .pdf-editor-direct-text:focus{
   outline:0;box-shadow:none;

@@ -180,12 +180,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=8";
+      link.href = "./editor.css?v=9";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=8", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=9", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;

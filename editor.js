@@ -135,6 +135,7 @@
     var icons = {
       select: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 4 6.5 15 2.1-6.2 6.4-2.2z"/></svg>',
       edittext: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M12 6v12M8 18h8"/><path d="m16.5 13.5 3-3 1.5 1.5-3 3z"/></svg>',
+      editimage: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="13" height="11" rx="2"/><circle cx="8" cy="9" r="1.2"/><path d="m6 14 3-3 2.5 2 2-2 1.5 1.5"/><path d="M15 18h5M18 15l3 3-3 3"/></svg>',
       text: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M12 6v12M8 18h8"/></svg>',
       pen: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/><path d="m13.8 7.2 3 3"/></svg>',
       highlight: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 8-8 4 4-8 8H6z"/><path d="M4 20h16"/></svg>',
@@ -177,9 +178,11 @@
     });
     active.overlay.classList.toggle("select", tool === "select");
     active.overlay.classList.toggle("edit-existing-text", tool === "edittext");
+    active.overlay.classList.toggle("edit-existing-image", tool === "editimage");
     active.status.textContent =
       tool === "select" ? "Tap an edit to select and drag it" :
       tool === "edittext" ? "Loading editable text…" :
+      tool === "editimage" ? "Finding images…" :
       tool === "text" ? "Tap anywhere to add text" :
       tool === "pen" ? "Draw directly on the page" :
       tool === "highlight" ? "Drag across an area to highlight" :
@@ -193,6 +196,16 @@
         active.status.textContent = active.textRuns.length
           ? "Tap highlighted existing text to replace or delete it"
           : "No editable text detected on this page";
+        draw();
+      });
+    }
+
+    if (tool === "editimage") {
+      loadImageRuns().then(function () {
+        if (!active || active.tool !== "editimage") return;
+        active.status.textContent = active.imageRuns.length
+          ? "Tap an existing image, then drag it"
+          : "No movable images detected on this page";
         draw();
       });
     }
@@ -403,10 +416,175 @@
     return active.textRunsPromise;
   }
 
+  function loadImageRuns() {
+    if (!active) return Promise.resolve([]);
+    if (Array.isArray(active.imageRuns)) return Promise.resolve(active.imageRuns);
+    if (active.imageRunsPromise) return active.imageRunsPromise;
+
+    active.imageRunsPromise = Promise.resolve(host().getPageImageRuns(active.pageId))
+      .then(function (runs) {
+        if (!active) return [];
+        active.imageRuns = Array.isArray(runs) ? runs : [];
+        active.imageRunsPromise = null;
+        return active.imageRuns;
+      })
+      .catch(function (error) {
+        console.error(error);
+        if (active) {
+          active.imageRuns = [];
+          active.imageRunsPromise = null;
+          active.status.textContent = "Could not inspect existing images";
+        }
+        return [];
+      });
+
+    return active.imageRunsPromise;
+  }
+
+  function movedImageKeys() {
+    var keys = new Set();
+    if (!active) return keys;
+    active.annotations.forEach(function (item) {
+      if (item.type === "imagemove" && item.sourceKey) keys.add(item.sourceKey);
+    });
+    return keys;
+  }
+
+  function hitExistingImage(displayPoint) {
+    if (!active || !Array.isArray(active.imageRuns)) return null;
+    var moved = movedImageKeys();
+
+    for (var i = active.imageRuns.length - 1; i >= 0; i--) {
+      var run = active.imageRuns[i];
+      if (moved.has(run.key)) continue;
+      var rect = rectToDisplay(run, active.rotation);
+      if (
+        displayPoint.x >= rect.x - 0.006 &&
+        displayPoint.x <= rect.x + rect.w + 0.006 &&
+        displayPoint.y >= rect.y - 0.006 &&
+        displayPoint.y <= rect.y + rect.h + 0.006
+      ) return run;
+    }
+    return null;
+  }
+
+  function sampleRectBackground(run) {
+    if (!active) return "#ffffff";
+    var rect = rectToDisplay(run, active.rotation);
+    var canvas = active.pageCanvas;
+    var ctx = canvas.getContext("2d", { willReadFrequently: true });
+    var x = Math.max(0, Math.floor(rect.x * canvas.width));
+    var y = Math.max(0, Math.floor(rect.y * canvas.height));
+    var w = Math.max(1, Math.floor(rect.w * canvas.width));
+    var h = Math.max(1, Math.floor(rect.h * canvas.height));
+    var pad = Math.max(2, Math.round(Math.min(w, h) * 0.05));
+    var bx = Math.max(0, x - pad);
+    var by = Math.max(0, y - pad);
+    var bw = Math.min(canvas.width - bx, w + pad * 2);
+    var bh = Math.min(canvas.height - by, h + pad * 2);
+    if (bw <= 0 || bh <= 0) return "#ffffff";
+
+    try {
+      var data = ctx.getImageData(bx, by, bw, bh).data;
+      var counts = new Map();
+      for (var py = 0; py < bh; py += 2) {
+        for (var px = 0; px < bw; px += 2) {
+          var inside = px >= x - bx && px < x - bx + w && py >= y - by && py < y - by + h;
+          if (inside) continue;
+          var idx = (py * bw + px) * 4;
+          var r = data[idx], g = data[idx + 1], b = data[idx + 2];
+          var key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+          counts.set(key, (counts.get(key) || 0) + 1);
+        }
+      }
+      var best = null, count = -1;
+      counts.forEach(function (value, key) {
+        if (value > count) { count = value; best = key; }
+      });
+      if (best === null) return "#ffffff";
+      return canvasHex(((best >> 8) & 15) * 17, ((best >> 4) & 15) * 17, (best & 15) * 17);
+    } catch (_) {
+      return "#ffffff";
+    }
+  }
+
+  function captureImageRun(run) {
+    if (!active) return null;
+    var rect = rectToDisplay(run, active.rotation);
+    var source = active.pageCanvas;
+    var sx = Math.max(0, Math.floor(rect.x * source.width));
+    var sy = Math.max(0, Math.floor(rect.y * source.height));
+    var sw = Math.max(1, Math.min(source.width - sx, Math.ceil(rect.w * source.width)));
+    var sh = Math.max(1, Math.min(source.height - sy, Math.ceil(rect.h * source.height)));
+    if (sw <= 1 || sh <= 1) return null;
+
+    var canvas = document.createElement("canvas");
+    var scale = Math.min(1, 1800 / Math.max(sw, sh));
+    canvas.width = Math.max(1, Math.round(sw * scale));
+    canvas.height = Math.max(1, Math.round(sh * scale));
+    var ctx = canvas.getContext("2d");
+    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png");
+  }
+
+  function makeExistingImageMovable(run) {
+    if (!active || !run) return;
+    var src = captureImageRun(run);
+    if (!src) {
+      active.status.textContent = "Could not capture this image";
+      return;
+    }
+
+    pushLocalHistory();
+    var item = {
+      id: host().uid("edit"),
+      type: "imagemove",
+      sourceKey: run.key,
+      src: src,
+      x: run.x,
+      y: run.y,
+      w: run.w,
+      h: run.h,
+      originalX: run.x,
+      originalY: run.y,
+      originalW: run.w,
+      originalH: run.h,
+      bg: sampleRectBackground(run)
+    };
+    active.annotations.push(item);
+    setTool("select");
+    active.selectedId = item.id;
+    active.status.textContent = "Image selected · drag to move";
+    draw();
+  }
+
+  function drawExistingImageHotspots(ctx, width, height) {
+    if (!active || active.tool !== "editimage" || !Array.isArray(active.imageRuns)) return;
+    var moved = movedImageKeys();
+    ctx.save();
+    ctx.strokeStyle = "rgba(183,139,0,.82)";
+    ctx.fillStyle = "rgba(244,196,48,.08)";
+    ctx.lineWidth = Math.max(1, window.devicePixelRatio || 1);
+    ctx.setLineDash([5, 4]);
+    active.imageRuns.forEach(function (run) {
+      if (moved.has(run.key)) return;
+      var rect = rectToDisplay(run, active.rotation);
+      ctx.fillRect(rect.x * width, rect.y * height, rect.w * width, rect.h * height);
+      ctx.strokeRect(rect.x * width, rect.y * height, rect.w * width, rect.h * height);
+    });
+    ctx.restore();
+  }
+
   function fontFamilyCss(item) {
-    if (item.family === "serif") return "Times New Roman,Times,serif";
-    if (item.family === "mono") return "Consolas,Courier New,monospace";
-    return "Helvetica,Arial,sans-serif";
+    var fallback =
+      item.family === "serif" ? "Times New Roman,Times,serif" :
+      item.family === "mono" ? "Consolas,Courier New,monospace" :
+      "Helvetica,Arial,sans-serif";
+    var exact = String(item.fontFamily || "").replace(/["';]/g, "").trim();
+    if (exact && !/^(serif|sans-serif|monospace)$/i.test(exact)) {
+      return '"' + exact + '",' + fallback;
+    }
+    return fallback;
   }
 
   function canvasHex(r, g, b) {
@@ -547,6 +725,8 @@
         baseline: run.baseline,
         size: run.size,
         family: run.family,
+        fontFamily: run.fontFamily || "",
+        fontName: run.fontName || "",
         bold: !!run.bold,
         italic: !!run.italic,
         color: sampled.color,
@@ -1028,6 +1208,8 @@
       imageInput: imageInput,
       textRuns: null,
       textRunsPromise: null,
+      imageRuns: null,
+      imageRunsPromise: null,
       directTextEditor: null,
       rotation: normRotation(page.rotation || 0),
       pointer: null,
@@ -1047,6 +1229,7 @@
     toolList.append(
       createToolButton("Select", "select"),
       createToolButton("Edit text", "edittext"),
+      createToolButton("Move image", "editimage"),
       createToolButton("Text", "text"),
       createToolButton("Pen", "pen"),
       createToolButton("Highlight", "highlight"),
@@ -1272,6 +1455,13 @@
       return;
     }
 
+    if (active.tool === "editimage") {
+      var imageRun = hitExistingImage(displayPoint);
+      if (imageRun) makeExistingImageMovable(imageRun);
+      else active.status.textContent = "Tap one of the highlighted images";
+      return;
+    }
+
     if (active.tool === "text") {
       beginInlineNewText(displayPoint, canonical, minDim);
       return;
@@ -1441,6 +1631,7 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawAnnotations(ctx, active.annotations, canvas.width, canvas.height, active.rotation, active.selectedId, true);
     drawExistingTextHotspots(ctx, canvas.width, canvas.height);
+    drawExistingImageHotspots(ctx, canvas.width, canvas.height);
     renderTextHitLayer();
   }
 
@@ -1482,6 +1673,34 @@
         });
       } else if (item.type === "textedit") {
         drawTextEditPreview(ctx, item, width, height, rotation, false);
+      } else if (item.type === "imagemove") {
+        var originalRect = rectToDisplay({
+          x: item.originalX, y: item.originalY, w: item.originalW, h: item.originalH
+        }, rotation);
+        ctx.fillStyle = item.bg || "#ffffff";
+        ctx.fillRect(
+          originalRect.x * width,
+          originalRect.y * height,
+          originalRect.w * width,
+          originalRect.h * height
+        );
+        var movedRect = rectToDisplay(item, rotation);
+        var movedPromise = getImage(item.src);
+        var movedCached = imageCache.get(item.src);
+        Promise.resolve(movedCached || movedPromise).then(function (image) {
+          if (!image || !active || !allowAsyncImages) return;
+          var c = active.overlay.getContext("2d");
+          c.save();
+          c.drawImage(
+            image,
+            movedRect.x * width,
+            movedRect.y * height,
+            movedRect.w * width,
+            movedRect.h * height
+          );
+          c.restore();
+          if (selectedId === item.id) drawSelection(c, movedRect, width, height);
+        });
       } else if (item.type === "image") {
         var imageCenter = canonicalToDisplay({ x: item.cx, y: item.cy }, rotation);
         var imageMin = Math.min(width, height);
@@ -1623,6 +1842,24 @@
           0,
           strippedOriginals.has(item.original)
         );
+      } else if (item.type === "imagemove") {
+        ctx.fillStyle = item.bg || "#ffffff";
+        ctx.fillRect(
+          item.originalX * width,
+          item.originalY * height,
+          item.originalW * width,
+          item.originalH * height
+        );
+        var movedImage = await getImage(item.src);
+        if (movedImage) {
+          ctx.drawImage(
+            movedImage,
+            item.x * width,
+            item.y * height,
+            item.w * width,
+            item.h * height
+          );
+        }
       } else if (item.type === "image") {
         var image = await getImage(item.src);
         if (image) {

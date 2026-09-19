@@ -7,7 +7,7 @@
   <meta name="description" content="A fast, private, browser-based PDF workspace.">
   <title>iWeather PDF</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=6">
+  <link rel="stylesheet" href="./styles.css?v=7">
 </head>
 <body>
   <div class="app-shell">
@@ -39,6 +39,10 @@
       </nav>
 
       <div class="topbar-right">
+        <button class="convert-button" id="converterButton" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11M15 4l3 3-3 3"/><path d="M17 17H6M9 14l-3 3 3 3"/></svg>
+          <span>Convert</span>
+        </button>
         <div class="history-buttons" aria-label="History">
           <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
             <svg viewBox="0 0 24 24"><path d="M9 8 4.5 12 9 16"/><path d="M5 12h8.5a5.5 5.5 0 0 1 0 11"/></svg>
@@ -164,6 +168,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=6" defer></script>
+  <script src="./app.js?v=7" defer></script>
 </body>
 </html>

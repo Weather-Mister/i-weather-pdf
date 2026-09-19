@@ -37,6 +37,10 @@ assert(editor.includes("maxSide = 1600"), "inserted-image resize missing");
 assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");
 assert(editor.includes('createToolButton("Edit text", "edittext")'), "existing-text editor tool missing");
+assert(editor.includes('createToolButton("Move image", "editimage")'), "existing-image move tool missing");
+assert(app.includes("function getPageImageRuns"), "existing PDF image detection missing");
+assert(editor.includes('type: "imagemove"'), "existing image move annotation missing");
+assert(editor.includes("fontFamily: run.fontFamily"), "existing text font metadata is not preserved");
 assert(editor.includes('contentEditable = "true"'), "direct in-page existing text editor missing");
 assert(editor.includes("beginInlineNewText"), "direct inline new-text editor missing");
 assert(!editor.includes('window.prompt("Text to add:")'), "new text must not use a prompt window");
@@ -67,7 +71,7 @@ for (const id of new Set(idSelectors)) {
 
 const hostMethods = [
   "uid","normalizeRotation","getPage","getPageIndex","getDocumentName",
-  "getAnnotations","getPageTextRuns","commitAnnotations","renderPage","showToast","setStatus"
+  "getAnnotations","getPageTextRuns","getPageImageRuns","commitAnnotations","renderPage","showToast","setStatus"
 ];
 const hostStart = app.indexOf("window.iWeatherPDFEditorHost");
 const hostEnd = app.indexOf("function openPicker", hostStart);

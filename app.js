@@ -19,6 +19,7 @@
     viewerPromise: null,
     exportPromise: null,
     editorPromise: null,
+    converterPromise: null,
     sidebarObserver: null,
     history: { undo: [], redo: [] },
     ignoreClick: false
@@ -31,6 +32,7 @@
     fileInput: $("#fileInput"),
     chooseButton: $("#chooseButton"),
     addButton: $("#addButton"),
+    converterButton: $("#converterButton"),
     stripAddButton: $("#stripAddButton"),
     addMoreButton: $("#addMoreButton"),
     documentStrip: $("#documentStrip"),
@@ -185,6 +187,29 @@
       });
 
     return state.editorPromise;
+  }
+
+
+  function ensureConverter() {
+    if (window.iWeatherPDFConverter) return Promise.resolve(window.iWeatherPDFConverter);
+    if (state.converterPromise) return state.converterPromise;
+
+    if (!document.querySelector('link[data-pdf-converter-css]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "./converter.css?v=1";
+      link.dataset.pdfConverterCss = "true";
+      document.head.appendChild(link);
+    }
+
+    state.converterPromise = loadScript("./converter.js?v=1", "iWeatherPDFConverter")
+      .then(() => window.iWeatherPDFConverter)
+      .catch((error) => {
+        state.converterPromise = null;
+        throw error;
+      });
+
+    return state.converterPromise;
   }
 
   function getDocumentById(id) {
@@ -1400,6 +1425,19 @@
     .filter(Boolean)
     .forEach((button) => button.addEventListener("click", openPicker));
 
+  els.converterButton.addEventListener("click", async () => {
+    els.converterButton.disabled = true;
+    try {
+      const converter = await ensureConverter();
+      converter.open();
+    } catch (error) {
+      console.error(error);
+      showToast("Could not open the converter.", 2600);
+    } finally {
+      els.converterButton.disabled = false;
+    }
+  });
+
   els.fileInput.addEventListener("change", () => addFiles(els.fileInput.files));
 
   els.selectAllButton.addEventListener("click", selectAll);
@@ -1441,6 +1479,7 @@
   });
 
   window.addEventListener("dragenter", (event) => {
+    if (document.body.classList.contains("converter-open")) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     state.dragCounter++;
@@ -1449,12 +1488,14 @@
   });
 
   window.addEventListener("dragover", (event) => {
+    if (document.body.classList.contains("converter-open")) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   });
 
   window.addEventListener("dragleave", (event) => {
+    if (document.body.classList.contains("converter-open")) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
     state.dragCounter = Math.max(0, state.dragCounter - 1);
     if (!state.dragCounter) {
@@ -1464,6 +1505,7 @@
   });
 
   window.addEventListener("drop", (event) => {
+    if (document.body.classList.contains("converter-open")) return;
     if (!event.dataTransfer || !event.dataTransfer.files.length) return;
     event.preventDefault();
     state.dragCounter = 0;
@@ -1473,7 +1515,10 @@
   });
 
   window.addEventListener("keydown", (event) => {
-    if (document.body.classList.contains("pdf-editor-open")) return;
+    if (
+      document.body.classList.contains("pdf-editor-open") ||
+      document.body.classList.contains("converter-open")
+    ) return;
     const modifier = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();
     const target = event.target;

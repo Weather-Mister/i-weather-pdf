@@ -173,6 +173,13 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(231,74,59,.22);outli
 .secondary-button{
   height:34px;border:1px solid var(--line-strong);background:#fff;border-radius:9px;padding:0 11px;font-size:11px;font-weight:680;cursor:pointer
 }
+.delete-page-button{
+  height:34px;border:1px solid #efc7c2;background:#fffafa;color:#b7352b;border-radius:9px;
+  padding:0 10px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;font-weight:700;cursor:pointer
+}
+.delete-page-button:hover:not(:disabled){background:#fff0ed;border-color:#e9afa8}
+.delete-page-button:disabled{opacity:.36;cursor:default}
+.delete-page-button svg{width:14px;height:14px}
 .secondary-button:hover:not(:disabled){background:#f8f8f5}
 .secondary-button:disabled{opacity:.42}
 .export-button{height:34px;padding:0 11px;font-size:11px}
@@ -245,6 +252,8 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(231,74,59,.22);outli
   .canvas-toolbar{min-height:54px;padding:8px 10px 8px 12px}
   .canvas-toolbar span{display:none}
   #selectAllButton{display:none}
+  .delete-page-button{width:34px;padding:0}
+  .delete-page-button span{display:none}
   .statusbar{padding:0 9px}.privacy-status{font-size:9px}
   .toast{bottom:39px;max-width:calc(100vw - 24px);text-align:center}
 }

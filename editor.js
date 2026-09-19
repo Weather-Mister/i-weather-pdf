@@ -315,13 +315,11 @@
     return null;
   }
 
-  function promptTextReplacement(run, existing) {
+  function commitTextReplacement(run, existing, value) {
+    if (!active) return false;
     var before = existing ? existing.text : run.text;
-    var next = window.prompt(
-      "Edit existing PDF text. Leave empty to delete it:",
-      before
-    );
-    if (next === null || next === before) return;
+    var next = String(value == null ? "" : value);
+    if (next === before) return false;
 
     pushLocalHistory();
 
@@ -357,6 +355,67 @@
       ? "Existing text changed"
       : "Existing text marked for deletion";
     draw();
+    return true;
+  }
+
+  function beginInlineTextEdit(run, existing) {
+    if (!active || !active.textHitLayer) return;
+
+    var source = existing || run;
+    var rect = rectToDisplay(source, active.rotation);
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "pdf-editor-text-input";
+    input.value = existing ? existing.text : run.text;
+    input.style.left = (rect.x * 100) + "%";
+    input.style.top = (rect.y * 100) + "%";
+    input.style.width = Math.max(90, rect.w * active.stage.clientWidth + 28) + "px";
+    input.style.height = Math.max(28, rect.h * active.stage.clientHeight + 8) + "px";
+
+    var canonicalHeight = active.rotation % 180
+      ? active.stage.clientWidth
+      : active.stage.clientHeight;
+    var fontPx = Math.max(10, (source.size || 0.02) * canonicalHeight);
+    input.style.font =
+      (source.italic ? "italic " : "") +
+      (source.bold ? "700 " : "400 ") +
+      fontPx +
+      "px " +
+      fontFamilyCss(source);
+
+    active.textHitLayer.appendChild(input);
+    input.focus();
+    input.select();
+
+    var closed = false;
+    function finish(commit) {
+      if (closed) return;
+      closed = true;
+      var value = input.value;
+      input.remove();
+      if (commit) commitTextReplacement(run, existing, value);
+      else renderTextHitLayer();
+    }
+
+    input.addEventListener("pointerdown", function (event) {
+      event.stopPropagation();
+    });
+    input.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    input.addEventListener("keydown", function (event) {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", function () {
+      finish(true);
+    });
   }
 
   function drawExistingTextHotspots(ctx, width, height) {
@@ -405,7 +464,7 @@
       hit.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
-        promptTextReplacement(run, null);
+        beginInlineTextEdit(run, null);
       });
       active.textHitLayer.appendChild(hit);
     });
@@ -793,13 +852,13 @@
     if (active.tool === "edittext") {
       var existingEdit = hitTest(displayPoint);
       if (existingEdit && existingEdit.type === "textedit") {
-        promptTextReplacement(null, existingEdit);
+        beginInlineTextEdit(null, existingEdit);
         return;
       }
 
       var run = hitExistingText(displayPoint);
       if (run) {
-        promptTextReplacement(run, null);
+        beginInlineTextEdit(run, null);
       } else {
         active.status.textContent = "Tap one of the highlighted text lines";
       }

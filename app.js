@@ -12,14 +12,13 @@
     selected: new Set(),
     lastSelectedId: null,
     activeTool: null,
-    view: "viewer",
     activePageId: null,
     dragCounter: 0,
     loadingFiles: false,
     exporting: false,
-    enginesPromise: null,
+    viewerPromise: null,
+    exportPromise: null,
     editorPromise: null,
-    observer: null,
     sidebarObserver: null,
     history: { undo: [], redo: [] },
     ignoreClick: false
@@ -67,7 +66,13 @@
   }
 
   function deepClone(value) {
-    return JSON.parse(JSON.stringify(value));
+    if (Array.isArray(value)) return value.map(deepClone);
+    if (value && typeof value === "object") {
+      const result = {};
+      for (const key of Object.keys(value)) result[key] = deepClone(value[key]);
+      return result;
+    }
+    return value;
   }
 
   function getAnnotations(pageId) {
@@ -126,20 +131,38 @@
     });
   }
 
-  function ensureEngines() {
-    if (state.enginesPromise) return state.enginesPromise;
-    setStatus("Loading PDF engine…");
-    state.enginesPromise = Promise.all([
-      loadScript(PDFJS_URL, "pdfjsLib"),
-      loadScript(PDFLIB_URL, "PDFLib")
-    ]).then(() => {
+  function ensureViewerEngine() {
+    if (window.pdfjsLib) {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
-      return true;
-    }).catch((error) => {
-      state.enginesPromise = null;
-      throw error;
-    });
-    return state.enginesPromise;
+      return Promise.resolve(true);
+    }
+    if (state.viewerPromise) return state.viewerPromise;
+
+    setStatus("Loading PDF viewer…");
+    state.viewerPromise = loadScript(PDFJS_URL, "pdfjsLib")
+      .then(() => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+        return true;
+      })
+      .catch((error) => {
+        state.viewerPromise = null;
+        throw error;
+      });
+    return state.viewerPromise;
+  }
+
+  function ensureExportEngine() {
+    if (window.PDFLib) return Promise.resolve(true);
+    if (state.exportPromise) return state.exportPromise;
+
+    state.exportPromise = ensureViewerEngine()
+      .then(() => loadScript(PDFLIB_URL, "PDFLib"))
+      .then(() => true)
+      .catch((error) => {
+        state.exportPromise = null;
+        throw error;
+      });
+    return state.exportPromise;
   }
 
   function ensureEditor() {
@@ -149,12 +172,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=4";
+      link.href = "./editor.css?v=5";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=4", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=5", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -195,7 +218,7 @@
 
   function pushHistory() {
     state.history.undo.push(snapshotWorkspace());
-    if (state.history.undo.length > 35) state.history.undo.shift();
+    if (state.history.undo.length > 30) state.history.undo.shift();
     state.history.redo = [];
     updateHistoryButtons();
   }
@@ -207,6 +230,7 @@
   }
 
   function undo() {
+    saveCurrentEditor();
     if (!state.history.undo.length) return false;
     state.history.redo.push(snapshotWorkspace());
     restoreWorkspace(state.history.undo.pop());
@@ -219,6 +243,7 @@
   }
 
   function redo() {
+    saveCurrentEditor();
     if (!state.history.redo.length) return false;
     state.history.undo.push(snapshotWorkspace());
     restoreWorkspace(state.history.redo.pop());
@@ -281,7 +306,7 @@
 
       const name = document.createElement("span");
       name.className = "document-name";
-      name.textContent = doc.name;
+      name.textContent = doc.label || doc.name;
 
       const meta = document.createElement("span");
       meta.className = "document-size";
@@ -319,10 +344,12 @@
     };
 
     const pdfJs = await task.promise;
+    const sameNameCount = state.documents.filter((item) => item.name === file.name).length;
     const doc = {
       id,
       file,
       name: file.name,
+      label: sameNameCount ? file.name + " · copy " + (sameNameCount + 1) : file.name,
       size: file.size,
       lastModified: file.lastModified,
       pageCount: pdfJs.numPages,
@@ -350,41 +377,26 @@
     const incoming = [...fileList];
     const pdfs = incoming.filter(isPdf);
     const rejected = incoming.length - pdfs.length;
+
     if (!pdfs.length) {
       if (rejected) showToast("Only PDF files can be added.");
-      return;
-    }
-
-    const existingKeys = new Set(
-      state.documents.map((doc) => doc.name + ":" + doc.size + ":" + doc.lastModified)
-    );
-    const unique = pdfs.filter((file) => {
-      const key = file.name + ":" + file.size + ":" + file.lastModified;
-      if (existingKeys.has(key)) return false;
-      existingKeys.add(key);
-      return true;
-    });
-
-    if (!unique.length) {
-      showToast("Those PDFs are already in the workspace.");
       els.fileInput.value = "";
       return;
     }
 
     state.loadingFiles = true;
     clearHistory();
-    setStatus("Preparing " + unique.length + " PDF" + (unique.length === 1 ? "" : "s") + "…");
+    setStatus("Preparing " + pdfs.length + " PDF" + (pdfs.length === 1 ? "" : "s") + "…");
 
     try {
-      await ensureEngines();
+      await ensureViewerEngine();
       let added = 0;
 
-      for (const file of unique) {
+      for (const file of pdfs) {
         setStatus("Reading " + file.name + "…");
         try {
           await loadOnePdf(file);
           added++;
-          render();
         } catch (error) {
           console.error(error);
           showToast("Could not open " + file.name, 2600);
@@ -392,6 +404,7 @@
       }
 
       if (added) {
+        if (!state.activePageId && state.pages.length) state.activePageId = state.pages[0].id;
         setStatus(state.pages.length + " pages ready");
         showToast(
           added +
@@ -411,8 +424,8 @@
       }
     } catch (error) {
       console.error(error);
-      setStatus("PDF engine failed to load");
-      showToast("Could not load the PDF engine. Check your connection.", 3200);
+      setStatus("PDF viewer failed to load");
+      showToast("Could not load the PDF viewer. Check your connection.", 3200);
     } finally {
       state.loadingFiles = false;
       els.fileInput.value = "";
@@ -427,6 +440,15 @@
     const removedPageIds = state.pages
       .filter((page) => page.docId === id)
       .map((page) => page.id);
+
+    if (removedPageIds.includes(state.activePageId)) {
+      if (window.iWeatherPDFEditor && typeof window.iWeatherPDFEditor.close === "function") {
+        window.iWeatherPDFEditor.close(false);
+      }
+      state.activePageId = null;
+    } else {
+      saveCurrentEditor();
+    }
 
     state.documents = state.documents.filter((item) => item.id !== id);
     state.pages = state.pages.filter((page) => page.docId !== id);
@@ -456,9 +478,18 @@
     els.loadedState.hidden = !hasDocs;
 
     if (!hasDocs) {
+      if (state.sidebarObserver) {
+        state.sidebarObserver.disconnect();
+        state.sidebarObserver = null;
+      }
+      if (window.iWeatherPDFEditor && typeof window.iWeatherPDFEditor.close === "function") {
+        window.iWeatherPDFEditor.close(false);
+      }
       state.selected.clear();
       state.activeTool = null;
+      state.activePageId = null;
       els.documentList.replaceChildren();
+      if (els.sidebarPages) els.sidebarPages.replaceChildren();
       els.pageGrid.replaceChildren();
       els.workspaceTitle.textContent = "Workspace";
       els.workspaceMeta.textContent = "PDFs loaded locally";
@@ -480,7 +511,7 @@
     if (!state.pages.length) state.activePageId = null;
 
     els.workspaceTitle.textContent =
-      count === 1 ? state.documents[0].name : count + " PDFs in workspace";
+      count === 1 ? (state.documents[0].label || state.documents[0].name) : count + " PDFs in workspace";
     els.workspaceMeta.textContent =
       state.pages.length +
       " page" +
@@ -519,11 +550,6 @@
   }
 
   function renderPages() {
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-    }
-
     els.pageGrid.classList.remove("is-list");
     els.pageGrid.classList.add("is-viewer");
 
@@ -571,130 +597,6 @@
         els.pageGrid.append(failed);
         setStatus("Page editor failed");
       });
-  }
-
-  function createPageCard(page, index) {
-    const doc = getDocumentById(page.docId);
-    const card = document.createElement("article");
-    card.className = "page-card";
-    card.dataset.pageId = page.id;
-    card.classList.toggle("is-selected", state.selected.has(page.id));
-
-    const top = document.createElement("div");
-    top.className = "page-card-top";
-
-    const number = document.createElement("span");
-    number.className = "workspace-page-number";
-    number.textContent = String(index + 1);
-
-    const actions = document.createElement("div");
-    actions.className = "page-quick-actions";
-
-    const edit = document.createElement("button");
-    edit.type = "button";
-    edit.title = "Free edit";
-    edit.setAttribute("aria-label", "Free edit page");
-    edit.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16z"/><path d="m14 6 3 3"/></svg>';
-    edit.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openPageEditor(page.id);
-    });
-
-    const rotate = document.createElement("button");
-    rotate.type = "button";
-    rotate.title = "Rotate right";
-    rotate.setAttribute("aria-label", "Rotate page right");
-    rotate.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M19 12a7 7 0 1 1-2-5.3"/></svg>';
-    rotate.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (!state.selected.has(page.id)) {
-        state.selected.clear();
-        state.selected.add(page.id);
-      }
-      rotateSelected(90);
-    });
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.title = "Delete page";
-    remove.setAttribute("aria-label", "Delete page");
-    remove.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M8 10v8M12 10v8M16 10v8M6 7l1 14h10l1-14"/></svg>';
-    remove.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (!state.selected.has(page.id)) {
-        state.selected.clear();
-        state.selected.add(page.id);
-      }
-      deleteSelected();
-    });
-
-    actions.append(edit, rotate, remove);
-    if (editCount(page.id)) {
-      const badge = document.createElement("span");
-      badge.className = "page-edit-badge";
-      badge.textContent = editCount(page.id) + " edit" + (editCount(page.id) === 1 ? "" : "s");
-      top.append(number, badge, actions);
-    } else {
-      top.append(number, actions);
-    }
-
-    const preview = document.createElement("div");
-    preview.className = "page-preview";
-
-    const canvas = document.createElement("canvas");
-    canvas.dataset.pageId = page.id;
-    canvas.dataset.rendered = "false";
-    canvas.dataset.rendering = "false";
-    canvas.setAttribute("aria-label", "Page " + (index + 1) + " preview");
-
-    const sheen = document.createElement("div");
-    sheen.className = "page-skeleton";
-    preview.append(canvas, sheen);
-
-    const footer = document.createElement("div");
-    footer.className = "page-card-footer";
-
-    const source = document.createElement("div");
-    source.className = "page-source";
-    const title = document.createElement("strong");
-    title.textContent = "Page " + (index + 1);
-    const subtitle = document.createElement("span");
-    subtitle.textContent = (doc ? doc.name : "PDF") + " · p" + (page.sourceIndex + 1);
-    source.append(title, subtitle);
-
-    const handle = document.createElement("button");
-    handle.type = "button";
-    handle.className = "page-drag-handle";
-    handle.title = "Drag to reorder";
-    handle.setAttribute("aria-label", "Drag page " + (index + 1) + " to reorder");
-    handle.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/></svg>';
-    handle.addEventListener("pointerdown", (event) => startPointerReorder(event, page.id, handle));
-
-    footer.append(source, handle);
-    card.append(top, preview, footer);
-
-    card.addEventListener("click", (event) => {
-      if (state.ignoreClick || event.target.closest("button")) return;
-      selectPage(page.id, event);
-      if (
-        state.activeTool === "edit" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.shiftKey
-      ) {
-        openPageEditor(page.id);
-      }
-    });
-
-    card.addEventListener("dblclick", () => {
-      openPageEditor(page.id);
-    });
-
-    return card;
   }
 
   async function renderPageCanvas(canvas) {
@@ -802,10 +704,7 @@
   }
 
   function syncSelectionUI() {
-    $$(".page-card").forEach((card) => {
-      card.classList.toggle("is-selected", state.selected.has(card.dataset.pageId));
-    });
-    $(".sidebar-page-row").forEach((row) => {
+    $$(".sidebar-page-row").forEach((row) => {
       row.classList.toggle("is-selected", state.selected.has(row.dataset.pageId));
       row.classList.toggle("is-active", state.activePageId === row.dataset.pageId);
     });
@@ -868,7 +767,7 @@
 
       const source = document.createElement("span");
       source.textContent =
-        (doc ? doc.name : "PDF") +
+        (doc ? (doc.label || doc.name) : "PDF") +
         " · p" +
         (page.sourceIndex + 1) +
         (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "");
@@ -925,6 +824,24 @@
       );
       if (activeRow) activeRow.scrollIntoView({ block: "nearest" });
     });
+  }
+
+  function updateSidebarEditMeta(pageId) {
+    const row = els.sidebarPages && els.sidebarPages.querySelector(
+      '.sidebar-page-row[data-page-id="' + pageId + '"]'
+    );
+    const page = getPageById(pageId);
+    if (!row || !page) return;
+
+    const doc = getDocumentById(page.docId);
+    const source = row.querySelector(".sidebar-page-info span");
+    if (!source) return;
+
+    source.textContent =
+      (doc ? (doc.label || doc.name) : "PDF") +
+      " · p" +
+      (page.sourceIndex + 1) +
+      (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "");
   }
 
   function makeInspectorButton(label, action, options) {
@@ -996,7 +913,7 @@
     if (selected.length === 1) {
       const doc = getDocumentById(selected[0].docId);
       subtitle.textContent =
-        (doc ? doc.name : "PDF") + " · original page " + (selected[0].sourceIndex + 1);
+        (doc ? (doc.label || doc.name) : "PDF") + " · original page " + (selected[0].sourceIndex + 1);
     } else {
       subtitle.textContent = "Bulk actions apply to every selected page.";
     }
@@ -1107,6 +1024,7 @@
 
   function moveSelected(delta) {
     if (state.selected.size !== 1) return;
+    saveCurrentEditor();
     const id = [...state.selected][0];
     const index = state.pages.findIndex((page) => page.id === id);
     const target = index + delta;
@@ -1119,8 +1037,8 @@
     renderWorkspace();
 
     requestAnimationFrame(() => {
-      const card = els.pageGrid.querySelector('[data-page-id="' + id + '"]');
-      if (card) card.scrollIntoView({ block: "nearest" });
+      const row = els.sidebarPages.querySelector('[data-page-id="' + id + '"]');
+      if (row) row.scrollIntoView({ block: "nearest" });
     });
   }
 
@@ -1265,7 +1183,7 @@
     setStatus("Preparing export…");
 
     try {
-      await ensureEngines();
+      await ensureExportEngine();
       const sourceDocs = new Map();
 
       for (const model of pages) {
@@ -1372,14 +1290,15 @@
       0.12,
       Math.min(maxWidth / base.width, maxHeight / base.height, 1.8)
     );
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.6);
+    const cssViewport = pdfPage.getViewport({ scale: cssScale, rotation });
+    const cssWidth = Math.max(1, Math.floor(cssViewport.width));
+    const cssHeight = Math.max(1, Math.floor(cssViewport.height));
+    const pixelBudgetDpr = Math.sqrt(4200000 / Math.max(1, cssWidth * cssHeight));
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 1.6, pixelBudgetDpr));
     const viewport = pdfPage.getViewport({ scale: cssScale * dpr, rotation });
 
     canvas.width = Math.max(1, Math.floor(viewport.width));
     canvas.height = Math.max(1, Math.floor(viewport.height));
-
-    const cssWidth = Math.floor(viewport.width / dpr);
-    const cssHeight = Math.floor(viewport.height / dpr);
     canvas.style.width = cssWidth + "px";
     canvas.style.height = cssHeight + "px";
 
@@ -1399,8 +1318,12 @@
     if (cleaned.length) state.annotations[pageId] = cleaned;
     else delete state.annotations[pageId];
 
-    if (!quiet) renderPages();
-    renderSidebar();
+    if (!quiet) {
+      renderPages();
+      renderSidebar();
+    } else {
+      updateSidebarEditMeta(pageId);
+    }
     renderInspector();
     updateToolbarState();
     setStatus(cleaned.length ? cleaned.length + " edits saved" : "Edits cleared");
@@ -1433,7 +1356,7 @@
     getPageIndex: (pageId) => state.pages.findIndex((page) => page.id === pageId),
     getDocumentName: (docId) => {
       const doc = getDocumentById(docId);
-      return doc ? doc.name : "";
+      return doc ? (doc.label || doc.name) : "";
     },
     getAnnotations,
     commitAnnotations,
@@ -1487,14 +1410,6 @@
 
       renderInspector();
       updateToolbarState();
-    });
-  });
-
-  $$(".view-button").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.view = button.dataset.view;
-      $(".view-button").forEach((item) => item.classList.toggle("is-active", item === button));
-      renderPages();
     });
   });
 

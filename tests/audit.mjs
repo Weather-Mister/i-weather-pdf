@@ -4,6 +4,7 @@ const read = (path) => fs.readFileSync(path, "utf8");
 const app = read("app.js");
 const editor = read("editor.js");
 const converter = read("converter.js");
+const pptxViewer = read("pptx-viewer.js");
 const html = read("index.html");
 const css = read("styles.css");
 
@@ -15,6 +16,7 @@ const assert = (condition, message) => {
 try { new Function(app); } catch (error) { failures.push("app.js syntax: " + error.message); }
 try { new Function(editor); } catch (error) { failures.push("editor.js syntax: " + error.message); }
 try { new Function(converter); } catch (error) { failures.push("converter.js syntax: " + error.message); }
+try { new Function(pptxViewer); } catch (error) { failures.push("pptx-viewer.js syntax: " + error.message); }
 
 assert(!app.includes("existingKeys"), "duplicate-file guard returned");
 assert(!app.includes("Those PDFs are already"), "duplicate-file rejection message returned");
@@ -44,6 +46,12 @@ for (const mode of ["images-pdf","pdf-png","pdf-jpg","pdf-text"]) {
 }
 assert(converter.includes("MAX_IMAGE_PAGES = 300"), "PDF-to-image page safety limit missing");
 assert(converter.includes("makeZip(entries)"), "dependency-free ZIP writer missing");
+assert(app.includes('loadScript("./pptx-viewer.js?v=1"'), "PPTX viewer is not lazy-loaded");
+assert(app.includes('link.href = "./pptx-viewer.css?v=1"'), "PPTX viewer CSS is not lazy-loaded");
+assert(html.includes('id="pptxViewerButton"'), "PPTX viewer entry button missing");
+assert(pptxViewer.includes("omni-doc-viewer@0.1.3"), "PPTX viewer engine is not pinned");
+assert(pptxViewer.includes("createViewer"), "PPTX viewer controller missing");
+assert(pptxViewer.includes("gestures: true"), "PPTX touch/trackpad gestures missing");
 
 const singleSelectorForEach = /(^|[^$])\$\("[^"]+"\)\.forEach/g;
 assert(!singleSelectorForEach.test(app), "single-element selector used with .forEach");
@@ -112,9 +120,9 @@ if (failures.length) {
 }
 
 console.log("Audit passed");
-console.log(" - app.js, editor.js, and converter.js parse");
+console.log(" - app.js, editor.js, converter.js, and pptx-viewer.js parse");
 console.log(" - duplicate PDFs are allowed");
-console.log(" - PDF export and converter modules remain lazy");
+console.log(" - PDF export, converter, and PPTX viewer modules remain lazy");
 console.log(" - DOM selector targets are present");
 console.log(" - sidebar/runtime memory guards are present");
 console.log(" - 5,000-page data-model stress simulation passed");

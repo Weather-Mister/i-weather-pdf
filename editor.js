@@ -229,19 +229,88 @@
   }
 
 
+  function selectedAnnotation() {
+    if (!active || !active.selectedId) return null;
+    return active.annotations.find(function (item) { return item.id === active.selectedId; }) || null;
+  }
+
+  function textFontCss(item) {
+    var family = String((item && (item.fontFamily || item.font)) || "Arial").replace(/["';]/g, "").trim();
+    if (!family) family = "Arial";
+    return '"' + family + '",Arial,Helvetica,sans-serif';
+  }
+
+  function syncInlineTextFormatting() {
+    if (!active || !active.directTextEditor || !active.directTextEditor.isConnected) return;
+    var editor = active.directTextEditor;
+    if (!editor.classList.contains("is-new")) return;
+    var px = Number(active.size.value) || 24;
+    editor.style.color = active.color.value;
+    editor.style.fontFamily = textFontCss({ fontFamily: active.textFont.value });
+    editor.style.fontSize = px + "px";
+    editor.style.fontWeight = active.textStyle.bold ? "700" : "400";
+    editor.style.fontStyle = active.textStyle.italic ? "italic" : "normal";
+    editor.style.textDecorationLine = active.textStyle.underline ? "underline" : "none";
+    editor.style.minHeight = Math.max(16, px * 1.1) + "px";
+  }
+
+  function updateFormatButtonState() {
+    if (!active) return;
+    active.boldButton.classList.toggle("is-active", !!active.textStyle.bold);
+    active.italicButton.classList.toggle("is-active", !!active.textStyle.italic);
+    active.underlineButton.classList.toggle("is-active", !!active.textStyle.underline);
+  }
+
+  function applyTextFormatChange(property, value) {
+    if (!active) return;
+    var item = selectedAnnotation();
+    var selectedText = active.tool === "select" && item && item.type === "text";
+
+    if (property === "bold" || property === "italic" || property === "underline") {
+      active.textStyle[property] = !!value;
+    }
+
+    if (selectedText) {
+      pushLocalHistory();
+      if (property === "fontFamily") item.fontFamily = value;
+      else if (property === "sizePx") item.size = Number(value) / Math.max(1, Math.min(active.overlay.clientWidth, active.overlay.clientHeight));
+      else if (property === "color") item.color = value;
+      else item[property] = !!value;
+      active.status.textContent = "Text formatting updated";
+    }
+
+    updateFormatButtonState();
+    syncInlineTextFormatting();
+    draw();
+  }
+
   function updateToolControls() {
     if (!active || !active.props) return;
     var tool = active.tool;
-    var colorVisible = tool === "text" || tool === "pen" || tool === "rect";
+    var selected = selectedAnnotation();
+    var selectedText = tool === "select" && selected && selected.type === "text";
+    var textVisible = tool === "text" || selectedText;
+    var colorVisible = textVisible || tool === "pen" || tool === "rect";
     var strokeVisible = tool === "pen" || tool === "rect";
-    var sizeVisible = tool === "text";
     var deleteVisible = tool === "select" && !!active.selectedId;
+
+    if (selectedText) {
+      active.textFont.value = selected.fontFamily || "Arial";
+      active.size.value = String(Math.max(8, Math.round((selected.size || 0.04) * Math.max(1, Math.min(active.overlay.clientWidth, active.overlay.clientHeight)))));
+      active.color.value = selected.color || "#111111";
+      active.textStyle.bold = !!selected.bold;
+      active.textStyle.italic = !!selected.italic;
+      active.textStyle.underline = !!selected.underline;
+    }
 
     active.color.hidden = !colorVisible;
     active.stroke.hidden = !strokeVisible;
-    active.size.hidden = !sizeVisible;
+    active.size.hidden = !textVisible;
+    active.textFont.hidden = !textVisible;
+    active.textFormatGroup.hidden = !textVisible;
     active.removeButton.hidden = !deleteVisible;
-    active.props.hidden = !(colorVisible || strokeVisible || sizeVisible || deleteVisible);
+    active.props.hidden = !(colorVisible || strokeVisible || textVisible || deleteVisible);
+    updateFormatButtonState();
   }
 
   function updateZoomLabel() {
@@ -860,8 +929,12 @@
     editor.style.minHeight = Math.max(16, Number(active.size.value) * 1.1) + "px";
     editor.style.color = active.color.value;
     editor.style.background = "transparent";
-    editor.style.font = "600 " + Number(active.size.value) + "px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
     editor.style.lineHeight = "1.15";
+    editor.style.fontFamily = textFontCss({ fontFamily: active.textFont.value });
+    editor.style.fontSize = Number(active.size.value) + "px";
+    editor.style.fontWeight = active.textStyle.bold ? "700" : "400";
+    editor.style.fontStyle = active.textStyle.italic ? "italic" : "normal";
+    editor.style.textDecorationLine = active.textStyle.underline ? "underline" : "none";
 
     active.textHitLayer.appendChild(editor);
     active.directTextEditor = editor;
@@ -892,6 +965,10 @@
           text: value.slice(0, 2000),
           color: active.color.value,
           size: Number(active.size.value) / Math.max(1, minDim),
+          fontFamily: active.textFont.value,
+          bold: !!active.textStyle.bold,
+          italic: !!active.textStyle.italic,
+          underline: !!active.textStyle.underline,
           angle: normRotation(-active.rotation)
         };
         active.annotations.push(item);
@@ -1167,6 +1244,49 @@
       size.append(option);
     });
 
+    var textFont = document.createElement("select");
+    textFont.className = "pdf-editor-btn pdf-editor-font-select";
+    textFont.title = "Font";
+    [
+      ["Arial", "Arial"],
+      ["Helvetica", "Helvetica"],
+      ["Times New Roman", "Times New Roman"],
+      ["Georgia", "Georgia"],
+      ["Verdana", "Verdana"],
+      ["Courier New", "Courier New"]
+    ].forEach(function (entry) {
+      var option = document.createElement("option");
+      option.value = entry[0];
+      option.textContent = entry[1];
+      textFont.append(option);
+    });
+
+    var textFormatGroup = document.createElement("div");
+    textFormatGroup.className = "pdf-editor-text-format";
+    var boldButton = makeButton("B", "pdf-editor-btn pdf-editor-format-button", function () {
+      applyTextFormatChange("bold", !active.textStyle.bold);
+    }, "Bold");
+    var italicButton = makeButton("I", "pdf-editor-btn pdf-editor-format-button is-italic", function () {
+      applyTextFormatChange("italic", !active.textStyle.italic);
+    }, "Italic");
+    var underlineButton = makeButton("U", "pdf-editor-btn pdf-editor-format-button is-underline", function () {
+      applyTextFormatChange("underline", !active.textStyle.underline);
+    }, "Underline");
+    textFormatGroup.append(boldButton, italicButton, underlineButton);
+
+    textFont.addEventListener("change", function () {
+      applyTextFormatChange("fontFamily", textFont.value);
+      syncInlineTextFormatting();
+    });
+    size.addEventListener("change", function () {
+      applyTextFormatChange("sizePx", Number(size.value));
+      syncInlineTextFormatting();
+    });
+    color.addEventListener("change", function () {
+      applyTextFormatChange("color", color.value);
+      syncInlineTextFormatting();
+    });
+
     var remove = makeButton("Delete edit", "pdf-editor-btn", function () {
       if (!active || !active.selectedId) return;
       pushLocalHistory();
@@ -1199,6 +1319,12 @@
       color: color,
       stroke: stroke,
       size: size,
+      textFont: textFont,
+      textFormatGroup: textFormatGroup,
+      boldButton: boldButton,
+      italicButton: italicButton,
+      underlineButton: underlineButton,
+      textStyle: { bold: false, italic: false, underline: false },
       props: props,
       removeButton: remove,
       undoButton: undoButton,
@@ -1237,7 +1363,7 @@
       createToolButton("Whiteout", "whiteout"),
       createToolButton("Image", "image")
     );
-    props.append(color, stroke, size, remove);
+    props.append(textFont, size, textFormatGroup, color, stroke, remove);
     tools.append(toolList, zoomGroup, props, imageInput);
 
     if (embedded) {
@@ -1665,11 +1791,26 @@
         ctx.translate(anchor.x * width, anchor.y * height);
         ctx.rotate(normRotation((item.angle || 0) + rotation) * Math.PI / 180);
         ctx.fillStyle = item.color || "#111111";
-        ctx.font = "600 " + fontPx + "px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
+        ctx.font =
+          (item.italic ? "italic " : "") +
+          (item.bold ? "700 " : "400 ") +
+          fontPx + "px " + textFontCss(item);
         ctx.textBaseline = "top";
         var lines = String(item.text || "").split(/\r?\n/);
         lines.forEach(function (line, index) {
-          ctx.fillText(line, 0, index * fontPx * 1.2);
+          var lineY = index * fontPx * 1.2;
+          ctx.fillText(line, 0, lineY);
+          if (item.underline && line) {
+            var lineWidth = ctx.measureText(line).width;
+            ctx.save();
+            ctx.strokeStyle = item.color || "#111111";
+            ctx.lineWidth = Math.max(1, fontPx * 0.055);
+            ctx.beginPath();
+            ctx.moveTo(0, lineY + fontPx * 1.03);
+            ctx.lineTo(lineWidth, lineY + fontPx * 1.03);
+            ctx.stroke();
+            ctx.restore();
+          }
         });
       } else if (item.type === "textedit") {
         drawTextEditPreview(ctx, item, width, height, rotation, false);
@@ -1824,10 +1965,25 @@
         ctx.translate(item.x * width, item.y * height);
         ctx.rotate(normRotation(item.angle || 0) * Math.PI / 180);
         ctx.fillStyle = item.color || "#111111";
-        ctx.font = "600 " + fontPx + "px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
+        ctx.font =
+          (item.italic ? "italic " : "") +
+          (item.bold ? "700 " : "400 ") +
+          fontPx + "px " + textFontCss(item);
         ctx.textBaseline = "top";
         String(item.text || "").split(/\r?\n/).forEach(function (line, index) {
-          ctx.fillText(line, 0, index * fontPx * 1.2);
+          var lineY = index * fontPx * 1.2;
+          ctx.fillText(line, 0, lineY);
+          if (item.underline && line) {
+            var lineWidth = ctx.measureText(line).width;
+            ctx.save();
+            ctx.strokeStyle = item.color || "#111111";
+            ctx.lineWidth = Math.max(1, fontPx * 0.055);
+            ctx.beginPath();
+            ctx.moveTo(0, lineY + fontPx * 1.03);
+            ctx.lineTo(lineWidth, lineY + fontPx * 1.03);
+            ctx.stroke();
+            ctx.restore();
+          }
         });
       } else if (item.type === "textedit") {
         if (!textEditIds.has(item.id)) {

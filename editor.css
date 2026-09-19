@@ -281,3 +281,13 @@
   .pdf-editor-font-select{width:64px!important;max-width:64px!important}
   .pdf-editor-size-select{width:44px!important}
 }
+
+
+.pdf-editor-image-hit{
+  position:absolute;border:0;padding:0;margin:0;background:rgba(244,196,48,.06);
+  pointer-events:auto;cursor:move;border-radius:2px;outline:0
+}
+.pdf-editor-image-hit:hover,.pdf-editor-image-hit:focus-visible{
+  background:rgba(244,196,48,.14);
+  box-shadow:inset 0 0 0 1.5px rgba(183,139,0,.82)
+}

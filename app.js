@@ -20,6 +20,7 @@
     exportPromise: null,
     editorPromise: null,
     converterPromise: null,
+    pptxViewerPromise: null,
     sidebarObserver: null,
     history: { undo: [], redo: [] },
     ignoreClick: false
@@ -33,6 +34,7 @@
     chooseButton: $("#chooseButton"),
     addButton: $("#addButton"),
     converterButton: $("#converterButton"),
+    pptxViewerButton: $("#pptxViewerButton"),
     stripAddButton: $("#stripAddButton"),
     addMoreButton: $("#addMoreButton"),
     documentStrip: $("#documentStrip"),
@@ -210,6 +212,29 @@
       });
 
     return state.converterPromise;
+  }
+
+
+  function ensurePptxViewer() {
+    if (window.iWeatherPPTXViewer) return Promise.resolve(window.iWeatherPPTXViewer);
+    if (state.pptxViewerPromise) return state.pptxViewerPromise;
+
+    if (!document.querySelector('link[data-pptx-viewer-css]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "./pptx-viewer.css?v=1";
+      link.dataset.pptxViewerCss = "true";
+      document.head.appendChild(link);
+    }
+
+    state.pptxViewerPromise = loadScript("./pptx-viewer.js?v=1", "iWeatherPPTXViewer")
+      .then(() => window.iWeatherPPTXViewer)
+      .catch((error) => {
+        state.pptxViewerPromise = null;
+        throw error;
+      });
+
+    return state.pptxViewerPromise;
   }
 
   function getDocumentById(id) {
@@ -1438,6 +1463,19 @@
     }
   });
 
+  els.pptxViewerButton.addEventListener("click", async () => {
+    els.pptxViewerButton.disabled = true;
+    try {
+      const viewer = await ensurePptxViewer();
+      viewer.open();
+    } catch (error) {
+      console.error(error);
+      showToast("Could not open the PPTX viewer.", 2600);
+    } finally {
+      els.pptxViewerButton.disabled = false;
+    }
+  });
+
   els.fileInput.addEventListener("change", () => addFiles(els.fileInput.files));
 
   els.selectAllButton.addEventListener("click", selectAll);
@@ -1479,7 +1517,10 @@
   });
 
   window.addEventListener("dragenter", (event) => {
-    if (document.body.classList.contains("converter-open")) return;
+    if (
+      document.body.classList.contains("converter-open") ||
+      document.body.classList.contains("pptx-viewer-open")
+    ) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     state.dragCounter++;
@@ -1488,14 +1529,20 @@
   });
 
   window.addEventListener("dragover", (event) => {
-    if (document.body.classList.contains("converter-open")) return;
+    if (
+      document.body.classList.contains("converter-open") ||
+      document.body.classList.contains("pptx-viewer-open")
+    ) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   });
 
   window.addEventListener("dragleave", (event) => {
-    if (document.body.classList.contains("converter-open")) return;
+    if (
+      document.body.classList.contains("converter-open") ||
+      document.body.classList.contains("pptx-viewer-open")
+    ) return;
     if (!event.dataTransfer || !event.dataTransfer.types.includes("Files")) return;
     state.dragCounter = Math.max(0, state.dragCounter - 1);
     if (!state.dragCounter) {
@@ -1505,7 +1552,10 @@
   });
 
   window.addEventListener("drop", (event) => {
-    if (document.body.classList.contains("converter-open")) return;
+    if (
+      document.body.classList.contains("converter-open") ||
+      document.body.classList.contains("pptx-viewer-open")
+    ) return;
     if (!event.dataTransfer || !event.dataTransfer.files.length) return;
     event.preventDefault();
     state.dragCounter = 0;
@@ -1517,7 +1567,8 @@
   window.addEventListener("keydown", (event) => {
     if (
       document.body.classList.contains("pdf-editor-open") ||
-      document.body.classList.contains("converter-open")
+      document.body.classList.contains("converter-open") ||
+      document.body.classList.contains("pptx-viewer-open")
     ) return;
     const modifier = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();

@@ -180,7 +180,7 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=10";
+      link.href = "./editor.css?v=11";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }

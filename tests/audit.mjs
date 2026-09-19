@@ -38,6 +38,10 @@ assert(app.includes("4200000"), "full-page canvas pixel budget missing");
 assert(editor.includes("maxSide = 1600"), "inserted-image resize missing");
 assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");
+assert(editor.includes('createToolButton("Edit text", "edittext")'), "existing-text editor tool missing");
+assert(app.includes("function getPageTextRuns"), "existing PDF text extraction missing");
+assert(app.includes("function stripOriginalText"), "content-stream text removal missing");
+assert(app.includes("applyExistingTextEdits"), "vector replacement export missing");
 assert(app.includes('loadScript("./converter.js?v=1"'), "converter is not lazy-loaded");
 assert(app.includes('link.href = "./converter.css?v=1"'), "converter CSS is not lazy-loaded");
 assert(html.includes('id="converterButton"'), "converter entry button missing");
@@ -64,7 +68,7 @@ for (const id of new Set(idSelectors)) {
 
 const hostMethods = [
   "uid","normalizeRotation","getPage","getPageIndex","getDocumentName",
-  "getAnnotations","commitAnnotations","renderPage","showToast","setStatus"
+  "getAnnotations","getPageTextRuns","commitAnnotations","renderPage","showToast","setStatus"
 ];
 const hostStart = app.indexOf("window.iWeatherPDFEditorHost");
 const hostEnd = app.indexOf("function openPicker", hostStart);

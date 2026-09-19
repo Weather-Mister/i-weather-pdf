@@ -36,6 +36,7 @@
   position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair
 }
 .pdf-editor-overlay.select{cursor:default}
+.pdf-editor-overlay.edit-existing-text{cursor:text}
 .pdf-editor-status{
   position:absolute;right:12px;bottom:10px;z-index:3;padding:5px 8px;border-radius:8px;background:rgba(26,26,23,.78);color:#fff;
   font-size:9px;pointer-events:none

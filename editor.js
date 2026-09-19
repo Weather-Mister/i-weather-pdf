@@ -129,6 +129,13 @@
 
   function setTool(tool) {
     if (!active) return;
+    if (
+      active.directTextEditor &&
+      active.directTextEditor.isConnected &&
+      active.tool !== tool
+    ) {
+      active.directTextEditor.blur();
+    }
     active.tool = tool;
     active.selectedId = null;
     active.toolButtons.forEach(function (button) {
@@ -396,6 +403,7 @@
     editor.style.lineHeight = "1.06";
 
     active.textHitLayer.appendChild(editor);
+    active.directTextEditor = editor;
 
     requestAnimationFrame(function () {
       if (!editor.isConnected) return;
@@ -416,6 +424,9 @@
       closed = true;
       var value = (editor.textContent || "").replace(/\r?\n/g, " ");
       editor.remove();
+      if (active && active.directTextEditor === editor) {
+        active.directTextEditor = null;
+      }
       if (commit) commitTextReplacement(run, existing, value);
       else renderTextHitLayer();
     }
@@ -468,6 +479,7 @@
 
   function renderTextHitLayer() {
     if (!active || !active.textHitLayer) return;
+    if (active.directTextEditor && active.directTextEditor.isConnected) return;
     active.textHitLayer.replaceChildren();
     active.textHitLayer.classList.toggle("is-active", active.tool === "edittext");
 
@@ -706,6 +718,7 @@
       imageInput: imageInput,
       textRuns: null,
       textRunsPromise: null,
+      directTextEditor: null,
       rotation: normRotation(page.rotation || 0),
       pointer: null,
       dirty: false,
@@ -772,7 +785,7 @@
       draw();
     });
 
-    window.addEventListener("keydown", keydown, true);
+    window.addEventListener("keydown", keydown);
     setTool("select");
 
     try {
@@ -819,7 +832,7 @@
   function close(save) {
     if (!active) return;
     var current = active;
-    window.removeEventListener("keydown", keydown, true);
+    window.removeEventListener("keydown", keydown);
     if (save && hasChanges(current)) {
       host().commitAnnotations(current.pageId, current.annotations, true, !!current.embedded);
     }

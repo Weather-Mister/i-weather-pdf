@@ -37,6 +37,7 @@
 }
 .pdf-editor-overlay.select{cursor:default}
 .pdf-editor-overlay.edit-existing-text{cursor:text}
+.pdf-editor-overlay.edit-existing-image{cursor:pointer}
 .pdf-editor-text-hit-layer{position:absolute;inset:0;pointer-events:none;z-index:2}
 .pdf-editor-text-hit-layer.is-active{pointer-events:none}
 .pdf-editor-text-hit{

@@ -32,11 +32,13 @@ assert(!app.includes("function createPageCard"), "dead middle-grid page card cod
 assert(!css.includes(".page-card{"), "dead middle-grid CSS returned");
 assert(app.includes("content-visibility") === false, "CSS accidentally embedded into JS");
 assert(css.includes("content-visibility:auto"), "sidebar containment optimization missing");
-assert(app.includes("4200000"), "full-page canvas pixel budget missing");
+assert(app.includes("12000000"), "high-resolution full-page canvas budget missing");
 assert(editor.includes("maxSide = 1600"), "inserted-image resize missing");
 assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");
 assert(editor.includes('createToolButton("Edit text", "edittext")'), "existing-text editor tool missing");
+assert(editor.includes('contentEditable = "true"'), "direct in-page existing text editor missing");
+assert(!editor.includes('window.prompt("Edit existing PDF text'), "existing text editing must not use a prompt window");
 assert(app.includes("function getPageTextRuns"), "existing PDF text extraction missing");
 assert(app.includes("function stripOriginalText"), "content-stream text removal missing");
 assert(app.includes("applyExistingTextEdits"), "vector replacement export missing");

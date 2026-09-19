@@ -11,6 +11,10 @@ function ok(v,m){(v?passed:fails).push(m); console.log((v?'PASS: ':'FAIL: ')+m)}
 function pdf(name,pages,id,bad=false){const b=Buffer.alloc(24);b.writeUInt16BE(pages,0);b[2]=id;b[3]=bad?255:0;const p=path.join(TMP,name);fs.writeFileSync(p,b);return p}
 function realPdf(name,pages=2){let out='%PDF-1.4\n',offsets=[0],objs=[];objs[1]='<< /Type /Catalog /Pages 2 0 R >>';const kids=[];for(let i=0;i<pages;i++)kids.push((3+i)+' 0 R');objs[2]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+pages+' >>';for(let i=0;i<pages;i++)objs[3+i]='<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>';for(let i=1;i<objs.length;i++){offsets[i]=Buffer.byteLength(out);out+=i+' 0 obj\n'+objs[i]+'\nendobj\n'}const xref=Buffer.byteLength(out);out+='xref\n0 '+objs.length+'\n0000000000 65535 f \n';for(let i=1;i<objs.length;i++)out+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';out+='trailer\n<< /Size '+objs.length+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF\n';const p=path.join(TMP,name);fs.writeFileSync(p,out);return p}
 const same=pdf('same.pdf',12,1), other=pdf('other.pdf',7,2), huge=pdf('huge.pdf',2000,3), corrupt=pdf('corrupt.pdf',3,255,true), real=realPdf('real.pdf',2);
+const pptxSample=path.join(TMP,'sample.pptx');
+const pptxResponse=await fetch('https://raw.githubusercontent.com/loadfix/pptxjs/8c9c46e4310a09f1465d0e0e459040c4a95b9aee/tests/render-test/basic/presentation.pptx');
+if(!pptxResponse.ok) throw new Error('Could not download PPTX fixture: '+pptxResponse.status);
+fs.writeFileSync(pptxSample,Buffer.from(await pptxResponse.arrayBuffer()));
 const txt=path.join(TMP,'bad.txt');fs.writeFileSync(txt,'x');
 const png=path.join(TMP,'pixel.png');fs.writeFileSync(png,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wn4GBgYGJAQoAHgAB/1V1VgAAAABJRU5ErkJggg==','base64'));
 const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml'};

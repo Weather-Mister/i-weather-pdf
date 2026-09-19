@@ -117,12 +117,44 @@
     active.redoButton.disabled = !active.redo.length;
   }
 
+  function actionIcon(label) {
+    var icons = {
+      "Undo": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 8 4.5 12 9 16"/><path d="M5 12h8.5a5.5 5.5 0 0 1 0 11"/></svg>',
+      "Redo": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 8 4.5 4-4.5 4"/><path d="M19 12h-8.5a5.5 5.5 0 0 0 0 11"/></svg>',
+      "Save": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></svg>',
+      "Done": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg>',
+      "Close": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+      "Delete edit": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m8 10 .5 8h7l.5-8"/></svg>'
+    };
+    return icons[label] || "";
+  }
+
+  function toolIcon(tool) {
+    var icons = {
+      select: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 4 6.5 15 2.1-6.2 6.4-2.2z"/></svg>',
+      edittext: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M12 6v12M8 18h8"/><path d="m16.5 13.5 3-3 1.5 1.5-3 3z"/></svg>',
+      text: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M12 6v12M8 18h8"/></svg>',
+      pen: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/><path d="m13.8 7.2 3 3"/></svg>',
+      highlight: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 8-8 4 4-8 8H6z"/><path d="M4 20h16"/></svg>',
+      rect: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>',
+      whiteout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 16 8-8 4 4-8 8H6z"/><path d="M14 8l4-4 2 2-4 4"/></svg>',
+      image: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m6 17 4-4 3 3 2-2 3 3"/></svg>'
+    };
+    return icons[tool] || "";
+  }
+
   function makeButton(label, className, onClick, title) {
     var button = document.createElement("button");
     button.type = "button";
     button.className = className || "pdf-editor-btn";
-    button.textContent = label;
+    var icon = actionIcon(label);
+    if (icon) button.insertAdjacentHTML("beforeend", icon);
+    var text = document.createElement("span");
+    text.className = "pdf-editor-button-label";
+    text.textContent = label;
+    button.append(text);
     button.title = title || label;
+    button.setAttribute("aria-label", title || label);
     button.addEventListener("click", onClick);
     return button;
   }
@@ -175,6 +207,8 @@
       setTool(tool);
     }, label);
     button.dataset.tool = tool;
+    var icon = toolIcon(tool);
+    if (icon) button.insertAdjacentHTML("afterbegin", icon);
     active.toolButtons.push(button);
     return button;
   }
@@ -739,7 +773,13 @@
     props.append(color, stroke, size, remove);
     tools.append(toolList, props, imageInput);
 
-    shell.append(topbar, tools, stageWrap);
+    if (embedded) {
+      right.classList.add("pdf-editor-inline-actions");
+      tools.append(right);
+      shell.append(tools, stageWrap);
+    } else {
+      shell.append(topbar, tools, stageWrap);
+    }
     backdrop.append(shell);
     if (embedded) {
       options.mount.replaceChildren(backdrop);

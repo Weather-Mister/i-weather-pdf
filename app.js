@@ -1074,6 +1074,7 @@
   }
 
   function startPointerReorder(event, pageId, handle, selectOnTap = false) {
+    if (pointerDrag) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1100,9 +1101,9 @@
     );
     if (sourceRow) sourceRow.classList.add("is-dragging");
 
-    handle.addEventListener("pointermove", onPointerReorderMove);
-    handle.addEventListener("pointerup", onPointerReorderEnd, { once: true });
-    handle.addEventListener("pointercancel", onPointerReorderEnd, { once: true });
+    window.addEventListener("pointermove", onPointerReorderMove, { passive: false });
+    window.addEventListener("pointerup", onPointerReorderEnd);
+    window.addEventListener("pointercancel", onPointerReorderEnd);
   }
 
   function runReorderAutoScroll() {
@@ -1124,6 +1125,7 @@
 
   function onPointerReorderMove(event) {
     if (!pointerDrag || event.pointerId !== pointerDrag.pointerId) return;
+    event.preventDefault();
 
     const distance =
       Math.abs(event.clientX - pointerDrag.startX) +
@@ -1161,7 +1163,9 @@
 
     const data = pointerDrag;
     if (data.raf) cancelAnimationFrame(data.raf);
-    data.handle.removeEventListener("pointermove", onPointerReorderMove);
+    window.removeEventListener("pointermove", onPointerReorderMove);
+    window.removeEventListener("pointerup", onPointerReorderEnd);
+    window.removeEventListener("pointercancel", onPointerReorderEnd);
 
     if (data.moved && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
       const element = document.elementFromPoint(event.clientX, event.clientY);

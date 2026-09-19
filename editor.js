@@ -124,7 +124,9 @@
       "Save": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></svg>',
       "Done": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg>',
       "Close": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
-      "Delete edit": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m8 10 .5 8h7l.5-8"/></svg>'
+      "Delete edit": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m8 10 .5 8h7l.5-8"/></svg>',
+      "Zoom out": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.5 15.5 20 20"/></svg>',
+      "Zoom in": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.5 15.5 20 20"/></svg>'
     };
     return icons[label] || "";
   }
@@ -211,6 +213,169 @@
     if (icon) button.insertAdjacentHTML("afterbegin", icon);
     active.toolButtons.push(button);
     return button;
+  }
+
+
+  function updateToolControls() {
+    if (!active || !active.props) return;
+    var tool = active.tool;
+    var colorVisible = tool === "text" || tool === "pen" || tool === "rect";
+    var strokeVisible = tool === "pen" || tool === "rect";
+    var sizeVisible = tool === "text";
+    var deleteVisible = tool === "select" && !!active.selectedId;
+
+    active.color.hidden = !colorVisible;
+    active.stroke.hidden = !strokeVisible;
+    active.size.hidden = !sizeVisible;
+    active.removeButton.hidden = !deleteVisible;
+    active.props.hidden = !(colorVisible || strokeVisible || sizeVisible || deleteVisible);
+  }
+
+  function updateZoomLabel() {
+    if (!active || !active.zoomValueButton) return;
+    var label = active.zoomValueButton.querySelector(".pdf-editor-button-label");
+    if (label) label.textContent = Math.abs(active.zoom - 1) < 0.01 ? "Fit" : Math.round(active.zoom * 100) + "%";
+    active.zoomValueButton.title = Math.abs(active.zoom - 1) < 0.01 ? "Page fitted to view" : "Fit page";
+    active.zoomValueButton.setAttribute("aria-label", active.zoomValueButton.title);
+  }
+
+  function setStageCssSize(width, height) {
+    if (!active) return;
+    active.stage.style.width = width + "px";
+    active.stage.style.height = height + "px";
+    active.pageCanvas.style.width = width + "px";
+    active.pageCanvas.style.height = height + "px";
+    active.overlay.style.width = width + "px";
+    active.overlay.style.height = height + "px";
+  }
+
+  function swapRenderedPage(canvas, dims) {
+    if (!active) return;
+    canvas.className = "pdf-editor-page";
+    active.pageCanvas.replaceWith(canvas);
+    active.pageCanvas = canvas;
+    setStageCssSize(dims.width, dims.height);
+    resizeOverlay(dims.width, dims.height);
+    active.rotation = dims.rotation;
+    draw();
+  }
+
+  async function renderZoomQuality(expectedZoom) {
+    if (!active || !active.fitWidth || !active.fitHeight) return;
+    var current = active;
+    var generation = ++current.zoomRenderGeneration;
+    var targetWidth = Math.max(120, Math.round(current.fitWidth * expectedZoom));
+    var targetHeight = Math.max(120, Math.round(current.fitHeight * expectedZoom));
+    var temp = document.createElement("canvas");
+
+    try {
+      var dims = await host().renderPage(current.pageId, temp, targetWidth, targetHeight);
+      if (!active || active !== current || generation !== current.zoomRenderGeneration) return;
+      if (Math.abs(current.zoom - expectedZoom) > 0.01) return;
+      swapRenderedPage(temp, dims);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  function scheduleZoomRender() {
+    if (!active) return;
+    clearTimeout(active.zoomRenderTimer);
+    var expectedZoom = active.zoom;
+    active.zoomRenderTimer = setTimeout(function () {
+      renderZoomQuality(expectedZoom);
+    }, 140);
+  }
+
+  function setZoom(nextZoom, clientX, clientY) {
+    if (!active || !active.fitWidth || !active.fitHeight) return;
+    if (active.directTextEditor && active.directTextEditor.isConnected) active.directTextEditor.blur();
+
+    var next = clamp(nextZoom, 0.5, 4);
+    if (Math.abs(next - active.zoom) < 0.005) return;
+
+    var wrapRect = active.stageWrap.getBoundingClientRect();
+    var before = active.stage.getBoundingClientRect();
+    var anchorX = Number.isFinite(clientX) ? clientX : wrapRect.left + wrapRect.width / 2;
+    var anchorY = Number.isFinite(clientY) ? clientY : wrapRect.top + wrapRect.height / 2;
+    var relX = before.width ? clamp((anchorX - before.left) / before.width, 0, 1) : 0.5;
+    var relY = before.height ? clamp((anchorY - before.top) / before.height, 0, 1) : 0.5;
+
+    active.zoom = next;
+    var width = Math.round(active.fitWidth * next);
+    var height = Math.round(active.fitHeight * next);
+    setStageCssSize(width, height);
+    active.stageWrap.classList.toggle("is-zoomed", next > 1.01);
+    updateZoomLabel();
+
+    requestAnimationFrame(function () {
+      if (!active) return;
+      var after = active.stage.getBoundingClientRect();
+      active.stageWrap.scrollLeft += after.left + relX * after.width - anchorX;
+      active.stageWrap.scrollTop += after.top + relY * after.height - anchorY;
+    });
+
+    scheduleZoomRender();
+  }
+
+  async function fitPage() {
+    if (!active) return;
+    var current = active;
+    clearTimeout(current.zoomRenderTimer);
+    var generation = ++current.zoomRenderGeneration;
+    var horizontalPadding = current.embedded ? 28 : 48;
+    var verticalPadding = current.embedded ? 24 : 48;
+    var maxWidth = Math.max(260, current.stageWrap.clientWidth - horizontalPadding);
+    var maxHeight = Math.max(320, current.stageWrap.clientHeight - verticalPadding);
+    var temp = document.createElement("canvas");
+
+    try {
+      var dims = await host().renderPage(current.pageId, temp, maxWidth, maxHeight);
+      if (!active || active !== current || generation !== current.zoomRenderGeneration) return;
+      current.fitWidth = dims.width;
+      current.fitHeight = dims.height;
+      current.zoom = 1;
+      current.stageWrap.classList.remove("is-zoomed");
+      swapRenderedPage(temp, dims);
+      updateZoomLabel();
+    } catch (error) {
+      console.error(error);
+      host().showToast("Could not fit this page.");
+    }
+  }
+
+  function wheelZoom(event) {
+    if (!active || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    var factor = Math.exp(-event.deltaY * 0.003);
+    setZoom(active.zoom * factor, event.clientX, event.clientY);
+  }
+
+  function beginPan(event) {
+    if (!active) return;
+    event.preventDefault();
+    try { active.overlay.setPointerCapture(event.pointerId); } catch (_) {}
+    active.pointer = {
+      id: event.pointerId,
+      mode: "pan",
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: active.stageWrap.scrollLeft,
+      scrollTop: active.stageWrap.scrollTop
+    };
+    active.overlay.classList.add("panning");
+  }
+
+  function keyup(event) {
+    if (!active || event.code !== "Space") return;
+    active.spacePan = false;
+    active.stageWrap.classList.remove("is-pan-ready");
+  }
+
+  function clearPanKey() {
+    if (!active) return;
+    active.spacePan = false;
+    active.stageWrap.classList.remove("is-pan-ready");
   }
 
   function loadTextRuns() {
@@ -673,6 +838,20 @@
     var props = document.createElement("div");
     props.className = "pdf-editor-props";
 
+    var zoomGroup = document.createElement("div");
+    zoomGroup.className = "pdf-editor-zoom";
+    var zoomOutButton = makeButton("Zoom out", "pdf-editor-btn pdf-editor-icon-only", function () {
+      if (active) setZoom(active.zoom / 1.2);
+    }, "Zoom out");
+    zoomOutButton.dataset.zoomAction = "out";
+    var zoomValueButton = makeButton("Fit", "pdf-editor-btn pdf-editor-zoom-value", fitPage, "Fit page");
+    zoomValueButton.dataset.zoomAction = "fit";
+    var zoomInButton = makeButton("Zoom in", "pdf-editor-btn pdf-editor-icon-only", function () {
+      if (active) setZoom(active.zoom * 1.2);
+    }, "Zoom in");
+    zoomInButton.dataset.zoomAction = "in";
+    zoomGroup.append(zoomOutButton, zoomValueButton, zoomInButton);
+
     var stageWrap = document.createElement("div");
     stageWrap.className = "pdf-editor-stage-wrap";
     var stage = document.createElement("div");
@@ -746,8 +925,11 @@
       color: color,
       stroke: stroke,
       size: size,
+      props: props,
+      removeButton: remove,
       undoButton: undoButton,
       redoButton: redoButton,
+      zoomValueButton: zoomValueButton,
       toolButtons: [],
       imageInput: imageInput,
       textRuns: null,
@@ -756,6 +938,14 @@
       rotation: normRotation(page.rotation || 0),
       pointer: null,
       dirty: false,
+      zoom: 1,
+      fitWidth: 0,
+      fitHeight: 0,
+      zoomRenderTimer: null,
+      zoomRenderGeneration: 0,
+      resizeTimer: null,
+      resizeObserver: null,
+      spacePan: false,
       embedded: embedded,
       mount: options.mount || null
     };
@@ -771,7 +961,7 @@
       createToolButton("Image", "image")
     );
     props.append(color, stroke, size, remove);
-    tools.append(toolList, props, imageInput);
+    tools.append(toolList, zoomGroup, props, imageInput);
 
     if (embedded) {
       right.classList.add("pdf-editor-inline-actions");
@@ -792,6 +982,7 @@
     overlay.addEventListener("pointermove", pointerMove);
     overlay.addEventListener("pointerup", pointerUp);
     overlay.addEventListener("pointercancel", pointerUp);
+    stageWrap.addEventListener("wheel", wheelZoom, { passive: false });
 
     imageInput.addEventListener("change", async function () {
       var file = imageInput.files && imageInput.files[0];
@@ -826,21 +1017,22 @@
     });
 
     window.addEventListener("keydown", keydown);
+    window.addEventListener("keyup", keyup);
+    window.addEventListener("blur", clearPanKey);
     setTool("select");
 
+    active.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(function () {
+      if (!active || active.zoom !== 1) return;
+      clearTimeout(active.resizeTimer);
+      active.resizeTimer = setTimeout(function () {
+        if (active && active.zoom === 1) fitPage();
+      }, 180);
+    }) : null;
+    if (active.resizeObserver) active.resizeObserver.observe(stageWrap);
+
     try {
-      var mountWidth = embedded ? Math.max(260, options.mount.clientWidth - 36) : window.innerWidth - 70;
-      var mountHeight = embedded ? Math.max(320, options.mount.clientHeight - 118) : window.innerHeight - 150;
-      var maxWidth = Math.min(1600, Math.max(260, mountWidth));
-      var maxHeight = Math.max(320, mountHeight);
-      var dims = await h.renderPage(pageId, pageCanvas, maxWidth, maxHeight);
+      await fitPage();
       if (!active || active.pageId !== pageId) return;
-      stage.style.width = dims.width + "px";
-      stage.style.height = dims.height + "px";
-      pageCanvas.style.width = dims.width + "px";
-      pageCanvas.style.height = dims.height + "px";
-      resizeOverlay(dims.width, dims.height);
-      active.rotation = dims.rotation;
       updateUndoRedo();
       draw();
     } catch (error) {
@@ -873,6 +1065,11 @@
     if (!active) return;
     var current = active;
     window.removeEventListener("keydown", keydown);
+    window.removeEventListener("keyup", keyup);
+    window.removeEventListener("blur", clearPanKey);
+    clearTimeout(current.zoomRenderTimer);
+    clearTimeout(current.resizeTimer);
+    if (current.resizeObserver) current.resizeObserver.disconnect();
     if (save && hasChanges(current)) {
       host().commitAnnotations(current.pageId, current.annotations, true, !!current.embedded);
     }
@@ -930,7 +1127,12 @@
   }
 
   function pointerDown(event) {
-    if (!active || event.button > 0) return;
+    if (!active) return;
+    if (event.button === 1 || active.spacePan) {
+      beginPan(event);
+      return;
+    }
+    if (event.button > 0) return;
     event.preventDefault();
     try { active.overlay.setPointerCapture(event.pointerId); } catch (_) {}
 
@@ -942,6 +1144,11 @@
     if (active.tool === "select") {
       var hit = hitTest(displayPoint);
       active.selectedId = hit ? hit.id : null;
+      if (!hit && active.zoom > 1.01) {
+        beginPan(event);
+        draw();
+        return;
+      }
       if (hit && hit.type !== "textedit") {
         active.pointer = {
           id: event.pointerId,
@@ -1031,9 +1238,15 @@
   function pointerMove(event) {
     if (!active || !active.pointer || event.pointerId !== active.pointer.id) return;
     event.preventDefault();
+    var pointer = active.pointer;
+    if (pointer.mode === "pan") {
+      active.stageWrap.scrollLeft = pointer.scrollLeft - (event.clientX - pointer.startX);
+      active.stageWrap.scrollTop = pointer.scrollTop - (event.clientY - pointer.startY);
+      return;
+    }
+
     var displayPoint = pointFromEvent(event);
     var canonical = displayToCanonical(displayPoint, active.rotation);
-    var pointer = active.pointer;
     var item = active.annotations.find(function (annotation) {
       return annotation.id === (pointer.annotationId || active.selectedId);
     });
@@ -1067,6 +1280,8 @@
     event.preventDefault();
     var pointer = active.pointer;
     active.pointer = null;
+    active.overlay.classList.remove("panning");
+    if (pointer.mode === "pan") return;
     if (pointer.mode === "shape") {
       var item = active.annotations.find(function (annotation) { return annotation.id === pointer.annotationId; });
       if (item && (item.w < 0.003 || item.h < 0.003)) {
@@ -1140,6 +1355,7 @@
 
   function draw() {
     if (!active) return;
+    updateToolControls();
     var canvas = active.overlay;
     var ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1397,6 +1613,28 @@
 
     var modifier = event.metaKey || event.ctrlKey;
     var key = event.key.toLowerCase();
+
+    if (event.code === "Space" && !modifier) {
+      active.spacePan = true;
+      active.stageWrap.classList.add("is-pan-ready");
+      event.preventDefault();
+      return;
+    }
+    if (modifier && (key === "+" || key === "=")) {
+      event.preventDefault();
+      setZoom(active.zoom * 1.2);
+      return;
+    }
+    if (modifier && key === "-") {
+      event.preventDefault();
+      setZoom(active.zoom / 1.2);
+      return;
+    }
+    if (modifier && key === "0") {
+      event.preventDefault();
+      fitPage();
+      return;
+    }
 
     if (modifier && key === "z") {
       event.preventDefault();

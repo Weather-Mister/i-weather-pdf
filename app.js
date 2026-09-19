@@ -1186,18 +1186,22 @@
 
         if (editCount(model.id)) {
           const editor = await ensureEditor();
+          const crop =
+            typeof copied.getCropBox === "function"
+              ? copied.getCropBox()
+              : { x: 0, y: 0, width: copied.getWidth(), height: copied.getHeight() };
           const overlayBytes = await editor.exportOverlay(
             model.id,
-            copied.getWidth(),
-            copied.getHeight()
+            crop.width,
+            crop.height
           );
           if (overlayBytes) {
             const overlayImage = await output.embedPng(overlayBytes);
             copied.drawImage(overlayImage, {
-              x: 0,
-              y: 0,
-              width: copied.getWidth(),
-              height: copied.getHeight()
+              x: crop.x,
+              y: crop.y,
+              width: crop.width,
+              height: crop.height
             });
           }
         }

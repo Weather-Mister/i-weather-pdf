@@ -18,8 +18,8 @@
   display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;white-space:nowrap
 }
 .pdf-editor-btn:hover,.pdf-editor-tool:hover{background:#f4f4f0}
-.pdf-editor-btn.primary{background:#e74a3b;border-color:#e74a3b;color:#fff}
-.pdf-editor-tool.is-active{background:#fff0ed;border-color:#e74a3b;color:#d83c2f}
+.pdf-editor-btn.primary{background:#f4c430;border-color:#f4c430;color:#fff}
+.pdf-editor-tool.is-active{background:#fff5bd;border-color:#f4c430;color:#d9a900}
 .pdf-editor-btn:disabled{opacity:.35;cursor:default}
 .pdf-editor-tools{justify-content:space-between;overflow-x:auto;scrollbar-width:none}
 .pdf-editor-tools::-webkit-scrollbar{display:none}
@@ -52,7 +52,7 @@
 }
 .pdf-editor-hidden-input{display:none!important}
 .page-edit-badge{
-  margin-left:6px;padding:2px 5px;border-radius:999px;background:#fff0ed;color:#d83c2f;font-size:8px;font-weight:800
+  margin-left:6px;padding:2px 5px;border-radius:999px;background:#fff5bd;color:#d9a900;font-size:8px;font-weight:800
 }
 .inspector-action.primary{background:#171714;color:#fff;border-color:#171714}
 .inspector-action.primary:hover{background:#2b2b27}
@@ -130,7 +130,7 @@
 .pdf-editor-tool .pdf-editor-button-label{display:none}
 .pdf-editor-tool:hover{background:#efefeb}
 .pdf-editor-tool.is-active{
-  background:#fff0ed;border-color:transparent;color:#d83c2f;box-shadow:inset 0 0 0 1px rgba(231,74,59,.18)
+  background:#fff5bd;border-color:transparent;color:#d9a900;box-shadow:inset 0 0 0 1px rgba(244,196,48,.24)
 }
 .pdf-editor-tools{
   min-height:42px;padding:0 8px;gap:5px;background:#fafaf7;border-bottom-color:#deded8;
@@ -226,55 +226,3 @@
   .pdf-editor-zoom-value{min-width:34px;font-size:8.5px}
   .pdf-editor-props{display:none!important}
 }
-
-
-/* I Weather editor yellow theme v11 */
-.pdf-editor-tools{
-  background:linear-gradient(180deg,#fffdf5,#f8f2df);
-  border-bottom-color:#ddd1a5;
-}
-.pdf-editor-tool{color:#665d44}
-.pdf-editor-tool:hover{background:#fff1aa;color:#443600}
-.pdf-editor-tool.is-active{
-  background:linear-gradient(180deg,#ffe976,#ffd84a);
-  color:#4f3c00;
-  box-shadow:inset 0 0 0 1px #d8ad1d,0 2px 7px rgba(127,94,0,.10);
-}
-.pdf-editor-btn{
-  border-color:#ddd1a5;
-  color:#554d37;
-}
-.pdf-editor-btn:hover:not(:disabled){background:#fff0a0;color:#3f3100}
-.pdf-editor-btn.primary{
-  color:#211b08;
-  background:linear-gradient(180deg,#ffdf61,#f4c430);
-  border-color:#d6a60d;
-  box-shadow:0 2px 0 #c99b09;
-}
-.pdf-editor-inline-actions{border-left-color:#ddcf9d}
-.pdf-editor-props{border-left-color:#ddcf9d}
-.pdf-editor-color{border-color:#d8c990;background:#fffbea}
-
-.pdf-editor-stage-wrap{
-  background:
-    radial-gradient(circle,#d7cca7 1px,transparent 1.2px) 0 0/18px 18px,
-    linear-gradient(180deg,#ebe7d8,#e5e0cf);
-}
-.pdf-editor-stage{
-  box-shadow:0 14px 38px rgba(77,58,6,.16),0 0 0 1px rgba(117,88,0,.08)!important;
-}
-.pdf-editor-status{
-  background:rgba(48,40,18,.88);
-  color:#fff6cf;
-  border:1px solid rgba(255,219,82,.22);
-}
-.pdf-editor-zoom{
-  border-left-color:#ddcf9d;
-  border-right-color:#ddcf9d;
-}
-.pdf-editor-zoom .pdf-editor-btn:hover:not(:disabled){background:#fff0a0}
-.pdf-editor-zoom-value{color:#7a5d00;font-weight:750}
-.pdf-editor-direct-text{caret-color:#b88900;text-decoration-color:rgba(215,169,0,.55)}
-.pdf-editor-direct-text:focus{text-decoration-color:#c79600}
-.pdf-editor-text-hit.is-edited:hover,
-.pdf-editor-text-hit.is-edited:focus-visible{background:rgba(244,196,48,.10)}

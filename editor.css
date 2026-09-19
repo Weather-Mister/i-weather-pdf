@@ -100,3 +100,10 @@
   .pdf-editor-embed .pdf-editor-stage-wrap{padding:10px 6px 40px}
   .pdf-editor-embed .pdf-editor-tools{padding:0 5px}
 }
+
+.pdf-editor-text-input{
+  position:absolute;z-index:5;min-width:90px;border:2px solid #2f7ee6;border-radius:5px;
+  background:#fff;color:#111;padding:2px 5px;outline:0;box-shadow:0 5px 18px rgba(0,0,0,.18);
+  line-height:1.05;transform-origin:top left
+}
+.pdf-editor-text-input:focus{box-shadow:0 0 0 3px rgba(47,126,230,.15),0 5px 18px rgba(0,0,0,.18)}

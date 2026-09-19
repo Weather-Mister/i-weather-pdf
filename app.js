@@ -183,12 +183,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=13";
+      link.href = "./editor.css?v=14";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=12", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=13", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -528,7 +528,7 @@
   }
 
   function render() {
-    const hasDocs = state.documents.length > 0;
+    const hasDocs = state.documents.length > 0 || state.pages.length > 0;
     els.documentStrip.hidden = !hasDocs;
     els.emptyState.hidden = hasDocs;
     els.loadedState.hidden = !hasDocs;

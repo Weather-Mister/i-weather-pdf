@@ -101,9 +101,20 @@
   .pdf-editor-embed .pdf-editor-tools{padding:0 5px}
 }
 
-.pdf-editor-text-input{
-  position:absolute;z-index:5;min-width:90px;border:2px solid #2f7ee6;border-radius:5px;
-  background:#fff;color:#111;padding:2px 5px;outline:0;box-shadow:0 5px 18px rgba(0,0,0,.18);
-  line-height:1.05;transform-origin:top left
+
+.pdf-editor-direct-text{
+  position:absolute;z-index:5;display:inline-block;width:max-content;box-sizing:border-box;
+  margin:0;padding:0;border:0;border-radius:0;outline:0;box-shadow:none;
+  white-space:pre;overflow:visible;cursor:text;caret-color:#1769d2;
+  text-decoration:underline;text-decoration-color:rgba(47,126,230,.5);
+  text-decoration-thickness:1px;text-underline-offset:2px
 }
-.pdf-editor-text-input:focus{box-shadow:0 0 0 3px rgba(47,126,230,.15),0 5px 18px rgba(0,0,0,.18)}
+.pdf-editor-direct-text:focus{
+  outline:0;box-shadow:none;
+  text-decoration-color:#2f7ee6;
+  text-decoration-thickness:2px
+}
+.pdf-editor-text-hit.is-edited:hover,
+.pdf-editor-text-hit.is-edited:focus-visible{
+  background:rgba(47,126,230,.06)
+}

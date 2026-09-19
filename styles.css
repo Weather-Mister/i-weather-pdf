@@ -306,3 +306,80 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(231,74,59,.22);outli
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
 }
+
+/* Full-page editor layout */
+.sidebar-reorder-hint{
+  flex:none;display:flex;align-items:center;gap:6px;margin:0 2px 10px;padding:7px 8px;border-radius:8px;
+  background:#f1f1ed;color:#77776f;font-size:9px;font-weight:650
+}
+.sidebar-reorder-hint svg{width:14px;height:14px;stroke-width:2.1}
+.page-grid.is-viewer{
+  display:block!important;padding:0!important;overflow:hidden!important;background:#e9e9e5;min-height:0
+}
+.viewer-loading{
+  height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#77776f;font-size:10px
+}
+.viewer-loading strong{font-size:12px;color:#4f4f49}
+.viewer-spinner{
+  width:24px;height:24px;border-radius:50%;border:2px solid #d2d2cb;border-top-color:var(--accent);
+  animation:viewerSpin .75s linear infinite;margin-bottom:4px
+}
+@keyframes viewerSpin{to{transform:rotate(360deg)}}
+
+.sidebar-pages{gap:8px;padding:1px 2px 12px}
+.sidebar-page-row{
+  position:relative;display:grid;grid-template-columns:70px minmax(0,1fr);align-items:center;gap:9px;
+  width:100%;padding:7px 31px 7px 7px;border:1px solid transparent;border-radius:10px;background:transparent;
+  cursor:pointer;user-select:none;-webkit-user-select:none;transition:.12s ease
+}
+.sidebar-page-row:hover{background:#f2f2ee;border-color:#e5e5df}
+.sidebar-page-row.is-active{background:#fff;border-color:var(--accent);box-shadow:0 0 0 2px rgba(231,74,59,.09)}
+.sidebar-page-row.is-selected:not(.is-active){background:var(--accent-soft)}
+.sidebar-page-row.is-dragging{opacity:.45;transform:scale(.985)}
+.sidebar-page-row.drop-target{border-color:var(--accent);box-shadow:0 0 0 2px rgba(231,74,59,.16)}
+.sidebar-thumb-wrap{
+  position:relative;width:70px;height:92px;display:flex;align-items:center;justify-content:center;overflow:hidden;
+  background:#e8e8e3;border:1px solid #d9d9d2;border-radius:5px
+}
+.sidebar-thumb-wrap canvas{
+  display:block;max-width:100%;max-height:100%;width:auto;height:auto;background:#fff;opacity:0;
+  box-shadow:0 1px 4px rgba(0,0,0,.12)
+}
+.sidebar-thumb-wrap.is-rendered canvas{opacity:1}
+.sidebar-thumb-skeleton{
+  position:absolute;inset:9px 12px;background:#f8f8f5;border:1px solid #deded7;border-radius:2px
+}
+.sidebar-thumb-wrap.is-rendered .sidebar-thumb-skeleton{display:none}
+.sidebar-thumb-number{
+  position:absolute;left:4px;bottom:4px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
+  display:grid;place-items:center;background:rgba(24,24,21,.8);color:#fff;font-size:8px;font-weight:760
+}
+.sidebar-page-info{padding-right:2px}
+.sidebar-page-info strong{font-size:10px}
+.sidebar-page-info span{max-width:83px}
+.sidebar-drag-handle{
+  position:absolute;right:5px;top:50%;transform:translateY(-50%);width:26px;height:38px;border:0;border-radius:7px;
+  background:transparent;display:grid;place-items:center;color:#8b8b84;cursor:grab;touch-action:none
+}
+.sidebar-drag-handle:hover{background:#e9e9e4;color:#4e4e49}
+.sidebar-drag-handle:active{cursor:grabbing;background:var(--accent-soft);color:var(--accent)}
+.sidebar-drag-handle svg{width:16px;height:16px;stroke-width:2.2}
+
+@media(max-width:640px){
+  .loaded-state{grid-template-columns:92px minmax(0,1fr)!important}
+  .sidebar{display:flex!important;padding:8px 5px!important}
+  .sidebar-heading{padding:2px 2px 7px}
+  .sidebar-heading>span:first-child{font-size:9px}
+  .sidebar-reorder-hint{padding:5px 3px;justify-content:center;margin-bottom:7px}
+  .sidebar-reorder-hint span{display:none}
+  .sidebar-page-row{
+    display:block;padding:5px;width:100%;border-radius:8px
+  }
+  .sidebar-thumb-wrap{width:68px;height:88px;margin:auto}
+  .sidebar-page-info{display:none}
+  .sidebar-drag-handle{
+    right:7px;top:9px;transform:none;width:24px;height:27px;background:rgba(255,255,255,.88);
+    box-shadow:0 1px 4px rgba(0,0,0,.12)
+  }
+  .canvas-toolbar{padding-left:9px}
+}

@@ -3,6 +3,7 @@
 
   var active = null;
   var imageCache = new Map();
+  var objectClipboard = [];
 
   function host() {
     if (!window.iWeatherPDFEditorHost) throw new Error("Editor host is unavailable");
@@ -2075,6 +2076,101 @@
     return new Uint8Array(await blob.arrayBuffer());
   }
 
+  function copySelectedObject() {
+    if (!active || !active.selectedId) return false;
+    var item = active.annotations.find(function (annotation) {
+      return annotation.id === active.selectedId;
+    });
+    if (!item) return false;
+
+    var copied = copy(item);
+    delete copied.id;
+
+    if (copied.type === "textedit") {
+      copied = {
+        type: "text",
+        x: copied.x,
+        y: copied.y,
+        text: copied.text || "",
+        color: copied.color || "#111111",
+        size: copied.size || 0.03,
+        fontFamily: copied.fontFamily || (copied.family === "serif" ? "Times New Roman" : copied.family === "mono" ? "Courier New" : "Helvetica"),
+        bold: !!copied.bold,
+        italic: !!copied.italic,
+        underline: !!copied.underline,
+        angle: normRotation(-active.rotation)
+      };
+    }
+
+    if (copied.type === "imagemove") {
+      copied.sourceKey = "";
+      copied.originalX = copied.x;
+      copied.originalY = copied.y;
+      copied.originalW = 0;
+      copied.originalH = 0;
+    }
+
+    objectClipboard = [copied];
+    host().showToast("Object copied");
+    return true;
+  }
+
+  function offsetPastedObject(item, amount) {
+    var delta = amount || 0.025;
+    if (item.type === "pen") {
+      item.points = (item.points || []).map(function (point) {
+        return {
+          x: clamp(point.x + delta, 0, 1),
+          y: clamp(point.y + delta, 0, 1)
+        };
+      });
+      return;
+    }
+    if (item.type === "image") {
+      item.cx = clamp((item.cx || 0.5) + delta, 0, 1);
+      item.cy = clamp((item.cy || 0.5) + delta, 0, 1);
+      return;
+    }
+    if (typeof item.x === "number") item.x = clamp(item.x + delta, 0, 1);
+    if (typeof item.y === "number") item.y = clamp(item.y + delta, 0, 1);
+  }
+
+  function pasteObject() {
+    if (!active || !objectClipboard.length) return false;
+    pushLocalHistory();
+
+    var last = null;
+    objectClipboard.forEach(function (source, index) {
+      var item = copy(source);
+      item.id = host().uid("edit");
+      offsetPastedObject(item, 0.025 + index * 0.012);
+      active.annotations.push(item);
+      last = item;
+    });
+
+    active.selectedId = last ? last.id : null;
+    active.status.textContent = objectClipboard.length === 1 ? "Object pasted" : "Objects pasted";
+    draw();
+    return true;
+  }
+
+  function cutSelectedObject() {
+    if (!copySelectedObject() || !active) return false;
+    pushLocalHistory();
+    active.annotations = active.annotations.filter(function (item) {
+      return item.id !== active.selectedId;
+    });
+    active.selectedId = null;
+    active.status.textContent = "Object cut";
+    draw();
+    return true;
+  }
+
+  function duplicateSelectedObject() {
+    if (!copySelectedObject()) return false;
+    return pasteObject();
+  }
+
   function keydown(event) {
     if (!active) return;
 
@@ -2086,6 +2182,42 @@
 
     var modifier = event.metaKey || event.ctrlKey;
     var key = event.key.toLowerCase();
+
+    if (event.key === "Insert") {
+      event.preventDefault();
+      if (host().addBlankPage) host().addBlankPage();
+      return;
+    }
+
+    if (modifier && key === "c") {
+      event.preventDefault();
+      if (!copySelectedObject()) {
+        objectClipboard = [];
+        if (host().copySelectedPages) host().copySelectedPages();
+      }
+      return;
+    }
+
+    if (modifier && key === "x") {
+      event.preventDefault();
+      if (!cutSelectedObject()) {
+        objectClipboard = [];
+        if (host().cutSelectedPages) host().cutSelectedPages();
+      }
+      return;
+    }
+
+    if (modifier && key === "v") {
+      event.preventDefault();
+      if (!pasteObject() && host().pastePages) host().pastePages();
+      return;
+    }
+
+    if (modifier && key === "d") {
+      event.preventDefault();
+      if (!duplicateSelectedObject() && host().duplicateSelected) host().duplicateSelected();
+      return;
+    }
 
     if (event.code === "Space" && !modifier) {
       active.spacePan = true;

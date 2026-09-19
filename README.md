@@ -1,4 +1,4 @@
-# iWeather PDF
+# I Weather PDF
 
 A lightweight, private PDF workspace designed to run entirely in the browser and deploy as a static GitHub Pages site.
 

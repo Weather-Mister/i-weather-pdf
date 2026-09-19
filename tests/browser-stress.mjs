@@ -17,6 +17,7 @@ const pptxResponse=await fetch('https://raw.githubusercontent.com/loadfix/pptxjs
 if(!pptxResponse.ok) throw new Error('Could not download PPTX fixture: '+pptxResponse.status);
 fs.writeFileSync(pptxSample,Buffer.from(await pptxResponse.arrayBuffer()));
 const txt=path.join(TMP,'bad.txt');fs.writeFileSync(txt,'x');
+const png=path.join(TMP,'pixel.png');fs.writeFileSync(png,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wn4GBgYGJAQoAHgAB/1V1VgAAAABJRU5ErkJggg==','base64'));
 const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml'};
 const server=http.createServer((req,res)=>{try{let u=new URL(req.url,'http://x').pathname;if(u==='/')u='/index.html';const f=path.resolve(ROOT,'.'+decodeURIComponent(u));if(!f.startsWith(ROOT+path.sep))throw 0;const s=fs.statSync(f);if(!s.isFile())throw 0;res.setHeader('Content-Type',mime[path.extname(f)]||'application/octet-stream');res.setHeader('Cache-Control','no-store');fs.createReadStream(f).pipe(res)}catch{res.writeHead(404);res.end('x')}});
 server.listen(0,'127.0.0.1');await once(server,'listening');const url='http://127.0.0.1:'+server.address().port+'/';

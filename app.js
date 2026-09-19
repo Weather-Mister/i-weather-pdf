@@ -8,6 +8,7 @@
   const state = {
     documents: [],
     pages: [],
+    annotations: {},
     selected: new Set(),
     lastSelectedId: null,
     activeTool: null,
@@ -16,6 +17,7 @@
     loadingFiles: false,
     exporting: false,
     enginesPromise: null,
+    editorPromise: null,
     observer: null,
     history: { undo: [], redo: [] },
     ignoreClick: false
@@ -60,6 +62,18 @@
 
   function normalizeRotation(value) {
     return ((value % 360) + 360) % 360;
+  }
+
+  function deepClone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function getAnnotations(pageId) {
+    return deepClone(state.annotations[pageId] || []);
+  }
+
+  function editCount(pageId) {
+    return (state.annotations[pageId] || []).length;
   }
 
   function formatBytes(bytes) {
@@ -126,6 +140,28 @@
     return state.enginesPromise;
   }
 
+  function ensureEditor() {
+    if (window.iWeatherPDFEditor) return Promise.resolve(window.iWeatherPDFEditor);
+    if (state.editorPromise) return state.editorPromise;
+
+    if (!document.querySelector('link[data-pdf-editor-css]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "./editor.css?v=3";
+      link.dataset.pdfEditorCss = "true";
+      document.head.appendChild(link);
+    }
+
+    state.editorPromise = loadScript("./editor.js?v=3", "iWeatherPDFEditor")
+      .then(() => window.iWeatherPDFEditor)
+      .catch((error) => {
+        state.editorPromise = null;
+        throw error;
+      });
+
+    return state.editorPromise;
+  }
+
   function getDocumentById(id) {
     return state.documents.find((doc) => doc.id === id);
   }
@@ -143,8 +179,20 @@
     }));
   }
 
+  function snapshotWorkspace() {
+    return {
+      pages: clonePages(),
+      annotations: deepClone(state.annotations)
+    };
+  }
+
+  function restoreWorkspace(snapshot) {
+    state.pages = snapshot.pages || [];
+    state.annotations = snapshot.annotations || {};
+  }
+
   function pushHistory() {
-    state.history.undo.push(clonePages());
+    state.history.undo.push(snapshotWorkspace());
     if (state.history.undo.length > 35) state.history.undo.shift();
     state.history.redo = [];
     updateHistoryButtons();
@@ -157,25 +205,27 @@
   }
 
   function undo() {
-    if (!state.history.undo.length) return;
-    state.history.redo.push(clonePages());
-    state.pages = state.history.undo.pop();
+    if (!state.history.undo.length) return false;
+    state.history.redo.push(snapshotWorkspace());
+    restoreWorkspace(state.history.undo.pop());
     state.selected.clear();
     state.lastSelectedId = null;
     renderWorkspace();
     updateHistoryButtons();
     showToast("Undone");
+    return true;
   }
 
   function redo() {
-    if (!state.history.redo.length) return;
-    state.history.undo.push(clonePages());
-    state.pages = state.history.redo.pop();
+    if (!state.history.redo.length) return false;
+    state.history.undo.push(snapshotWorkspace());
+    restoreWorkspace(state.history.redo.pop());
     state.selected.clear();
     state.lastSelectedId = null;
     renderWorkspace();
     updateHistoryButtons();
     showToast("Redone");
+    return true;
   }
 
   function updateHistoryButtons() {
@@ -372,8 +422,13 @@
     const doc = getDocumentById(id);
     if (!doc) return;
 
+    const removedPageIds = state.pages
+      .filter((page) => page.docId === id)
+      .map((page) => page.id);
+
     state.documents = state.documents.filter((item) => item.id !== id);
     state.pages = state.pages.filter((page) => page.docId !== id);
+    removedPageIds.forEach((pageId) => delete state.annotations[pageId]);
 
     for (const selectedId of [...state.selected]) {
       const page = getPageById(selectedId);
@@ -434,6 +489,22 @@
     updateToolbarState();
   }
 
+  function unloadPageCanvas(canvas) {
+    if (!canvas) return;
+    if (canvas._renderTask) {
+      try { canvas._renderTask.cancel(); } catch (_) {}
+      canvas._renderTask = null;
+    }
+    canvas._renderGeneration = (canvas._renderGeneration || 0) + 1;
+    canvas.dataset.rendered = "false";
+    canvas.dataset.rendering = "false";
+    if (canvas.width > 1 || canvas.height > 1) {
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+    if (canvas.parentElement) canvas.parentElement.classList.remove("is-rendered");
+  }
+
   function renderPages() {
     if (state.observer) state.observer.disconnect();
     els.pageGrid.replaceChildren();
@@ -456,12 +527,15 @@
     state.observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          state.observer.unobserve(entry.target);
-          renderPageCanvas(entry.target).catch((error) => console.error(error));
+          const canvas = entry.target;
+          if (entry.isIntersecting) {
+            renderPageCanvas(canvas).catch((error) => console.error(error));
+          } else {
+            unloadPageCanvas(canvas);
+          }
         });
       },
-      { root: els.pageGrid, rootMargin: "320px 0px", threshold: 0.01 }
+      { root: els.pageGrid, rootMargin: "700px 0px", threshold: 0.01 }
     );
 
     els.pageGrid.querySelectorAll("canvas[data-page-id]").forEach((canvas) => {
@@ -485,6 +559,17 @@
 
     const actions = document.createElement("div");
     actions.className = "page-quick-actions";
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.title = "Free edit";
+    edit.setAttribute("aria-label", "Free edit page");
+    edit.innerHTML =
+      '<svg viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16z"/><path d="m14 6 3 3"/></svg>';
+    edit.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPageEditor(page.id);
+    });
 
     const rotate = document.createElement("button");
     rotate.type = "button";
@@ -516,14 +601,23 @@
       deleteSelected();
     });
 
-    actions.append(rotate, remove);
-    top.append(number, actions);
+    actions.append(edit, rotate, remove);
+    if (editCount(page.id)) {
+      const badge = document.createElement("span");
+      badge.className = "page-edit-badge";
+      badge.textContent = editCount(page.id) + " edit" + (editCount(page.id) === 1 ? "" : "s");
+      top.append(number, badge, actions);
+    } else {
+      top.append(number, actions);
+    }
 
     const preview = document.createElement("div");
     preview.className = "page-preview";
 
     const canvas = document.createElement("canvas");
     canvas.dataset.pageId = page.id;
+    canvas.dataset.rendered = "false";
+    canvas.dataset.rendering = "false";
     canvas.setAttribute("aria-label", "Page " + (index + 1) + " preview");
 
     const sheen = document.createElement("div");
@@ -556,16 +650,18 @@
     card.addEventListener("click", (event) => {
       if (state.ignoreClick || event.target.closest("button")) return;
       selectPage(page.id, event);
+      if (
+        state.activeTool === "edit" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.shiftKey
+      ) {
+        openPageEditor(page.id);
+      }
     });
 
     card.addEventListener("dblclick", () => {
-      state.selected.clear();
-      state.selected.add(page.id);
-      state.lastSelectedId = page.id;
-      state.activeTool = "edit";
-      syncSelectionUI();
-      updateToolbarState();
-      renderInspector();
+      openPageEditor(page.id);
     });
 
     return card;
@@ -574,44 +670,63 @@
   async function renderPageCanvas(canvas) {
     const model = getPageById(canvas.dataset.pageId);
     if (!model || !canvas.isConnected) return;
+    if (canvas.dataset.rendered === "true" || canvas.dataset.rendering === "true") return;
+
     const doc = getDocumentById(model.docId);
     if (!doc) return;
 
-    const pdfPage = await doc.pdfJs.getPage(model.sourceIndex + 1);
-    if (!canvas.isConnected || !getPageById(model.id)) return;
-
-    const parentWidth = Math.max(120, Math.min(canvas.parentElement.clientWidth || 210, 230));
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    const rotation = normalizeRotation((pdfPage.rotate || 0) + (model.rotation || 0));
-    const base = pdfPage.getViewport({ scale: 1, rotation });
-    const cssScale = parentWidth / base.width;
-    const viewport = pdfPage.getViewport({ scale: cssScale * dpr, rotation });
-
-    canvas.width = Math.max(1, Math.floor(viewport.width));
-    canvas.height = Math.max(1, Math.floor(viewport.height));
-    canvas.style.width = Math.floor(viewport.width / dpr) + "px";
-    canvas.style.height = Math.floor(viewport.height / dpr) + "px";
-
-    if (canvas._renderTask) {
-      try {
-        canvas._renderTask.cancel();
-      } catch (_) {}
-    }
-
-    const context = canvas.getContext("2d", { alpha: false });
-    context.save();
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.restore();
-
-    const task = pdfPage.render({ canvasContext: context, viewport });
-    canvas._renderTask = task;
+    canvas.dataset.rendering = "true";
+    const generation = (canvas._renderGeneration || 0) + 1;
+    canvas._renderGeneration = generation;
 
     try {
+      const pdfPage = await doc.pdfJs.getPage(model.sourceIndex + 1);
+      if (
+        !canvas.isConnected ||
+        !getPageById(model.id) ||
+        canvas._renderGeneration !== generation
+      ) return;
+
+      const maxWidth = state.view === "list" ? 500 : 230;
+      const parentWidth = Math.max(
+        120,
+        Math.min(canvas.parentElement.clientWidth || 210, maxWidth)
+      );
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const rotation = normalizeRotation((pdfPage.rotate || 0) + (model.rotation || 0));
+      const base = pdfPage.getViewport({ scale: 1, rotation });
+      const cssScale = parentWidth / base.width;
+      const viewport = pdfPage.getViewport({ scale: cssScale * dpr, rotation });
+
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      canvas.style.width = Math.floor(viewport.width / dpr) + "px";
+      canvas.style.height = Math.floor(viewport.height / dpr) + "px";
+
+      const context = canvas.getContext("2d", { alpha: false });
+      context.save();
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.restore();
+
+      const task = pdfPage.render({ canvasContext: context, viewport });
+      canvas._renderTask = task;
       await task.promise;
-      if (canvas.isConnected) canvas.parentElement.classList.add("is-rendered");
+
+      if (
+        canvas.isConnected &&
+        canvas._renderGeneration === generation
+      ) {
+        canvas.dataset.rendered = "true";
+        if (canvas.parentElement) canvas.parentElement.classList.add("is-rendered");
+      }
     } catch (error) {
       if (!error || error.name !== "RenderingCancelledException") throw error;
+    } finally {
+      if (canvas._renderGeneration === generation) {
+        canvas.dataset.rendering = "false";
+        canvas._renderTask = null;
+      }
     }
   }
 
@@ -692,7 +807,11 @@
       title.textContent = "Page " + (index + 1);
 
       const source = document.createElement("span");
-      source.textContent = (doc ? doc.name : "PDF") + " · p" + (page.sourceIndex + 1);
+      source.textContent =
+        (doc ? doc.name : "PDF") +
+        " · p" +
+        (page.sourceIndex + 1) +
+        (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "");
 
       info.append(title, source);
       row.append(mini, info);
@@ -748,8 +867,8 @@
         title.textContent = "Drag to reorder";
         text.textContent = "Grab the six-dot handle on any page and drop it onto another page.";
       } else if (state.activeTool === "edit") {
-        title.textContent = "Select a page";
-        text.textContent = "Rotate, duplicate, delete, or extract it. Text and drawing tools come next.";
+        title.textContent = "Select a page to edit";
+        text.textContent = "Add text, pen marks, highlights, shapes, whiteout, or images directly on a page.";
       } else {
         title.textContent = "No page selected";
         text.textContent = "Select a page to see page controls.";
@@ -785,6 +904,13 @@
 
     const actionGrid = document.createElement("div");
     actionGrid.className = "inspector-action-grid";
+
+    if (selected.length === 1) {
+      const freeEdit = makeInspectorButton("Free edit", () => openPageEditor(selected[0].id));
+      freeEdit.classList.add("primary");
+      actionGrid.append(freeEdit);
+    }
+
     actionGrid.append(
       makeInspectorButton("Rotate left", () => rotateSelected(-90)),
       makeInspectorButton("Rotate right", () => rotateSelected(90)),
@@ -847,6 +973,9 @@
           rotation: page.rotation || 0
         };
         nextPages.push(copy);
+        if (state.annotations[page.id]) {
+          state.annotations[copy.id] = deepClone(state.annotations[page.id]);
+        }
         newSelected.add(copy.id);
       }
     });
@@ -861,8 +990,10 @@
   function deleteSelected() {
     if (!state.selected.size) return;
     const count = state.selected.size;
+    const removedIds = new Set(state.selected);
     pushHistory();
-    state.pages = state.pages.filter((page) => !state.selected.has(page.id));
+    state.pages = state.pages.filter((page) => !removedIds.has(page.id));
+    removedIds.forEach((pageId) => delete state.annotations[pageId]);
     state.selected.clear();
     state.lastSelectedId = null;
     renderWorkspace();
@@ -914,6 +1045,8 @@
       startY: event.clientY,
       targetId: null,
       moved: false,
+      autoScroll: 0,
+      raf: null,
       handle
     };
 
@@ -929,6 +1062,23 @@
     handle.addEventListener("pointercancel", onPointerReorderEnd, { once: true });
   }
 
+  function runReorderAutoScroll() {
+    if (!pointerDrag || !pointerDrag.autoScroll) return;
+    els.pageGrid.scrollTop += pointerDrag.autoScroll;
+    pointerDrag.raf = requestAnimationFrame(runReorderAutoScroll);
+  }
+
+  function setReorderAutoScroll(speed) {
+    if (!pointerDrag) return;
+    if (pointerDrag.autoScroll === speed) return;
+    pointerDrag.autoScroll = speed;
+    if (pointerDrag.raf) {
+      cancelAnimationFrame(pointerDrag.raf);
+      pointerDrag.raf = null;
+    }
+    if (speed) pointerDrag.raf = requestAnimationFrame(runReorderAutoScroll);
+  }
+
   function onPointerReorderMove(event) {
     if (!pointerDrag || event.pointerId !== pointerDrag.pointerId) return;
 
@@ -938,6 +1088,16 @@
 
     if (distance > 7) pointerDrag.moved = true;
     if (!pointerDrag.moved) return;
+
+    const gridRect = els.pageGrid.getBoundingClientRect();
+    const edge = Math.min(90, Math.max(45, gridRect.height * 0.12));
+    if (event.clientY < gridRect.top + edge) {
+      setReorderAutoScroll(-12);
+    } else if (event.clientY > gridRect.bottom - edge) {
+      setReorderAutoScroll(12);
+    } else {
+      setReorderAutoScroll(0);
+    }
 
     const element = document.elementFromPoint(event.clientX, event.clientY);
     const target = element && element.closest ? element.closest(".page-card") : null;
@@ -957,6 +1117,7 @@
     if (!pointerDrag || event.pointerId !== pointerDrag.pointerId) return;
 
     const data = pointerDrag;
+    if (data.raf) cancelAnimationFrame(data.raf);
     data.handle.removeEventListener("pointermove", onPointerReorderMove);
     $$(".page-card.is-dragging, .page-card.drop-target").forEach((card) => {
       card.classList.remove("is-dragging", "drop-target");
@@ -1023,6 +1184,24 @@
         );
         output.addPage(copied);
 
+        if (editCount(model.id)) {
+          const editor = await ensureEditor();
+          const overlayBytes = await editor.exportOverlay(
+            model.id,
+            copied.getWidth(),
+            copied.getHeight()
+          );
+          if (overlayBytes) {
+            const overlayImage = await output.embedPng(overlayBytes);
+            copied.drawImage(overlayImage, {
+              x: 0,
+              y: 0,
+              width: copied.getWidth(),
+              height: copied.getHeight()
+            });
+          }
+        }
+
         if (i % 8 === 0) {
           setStatus("Exporting " + (i + 1) + " / " + pages.length + "…");
           await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -1060,6 +1239,96 @@
       updateToolbarState();
     }
   }
+
+  async function renderEditorPage(pageId, canvas, maxWidth, maxHeight) {
+    const model = getPageById(pageId);
+    if (!model) throw new Error("Page not found");
+    const doc = getDocumentById(model.docId);
+    if (!doc) throw new Error("Document not found");
+
+    const pdfPage = await doc.pdfJs.getPage(model.sourceIndex + 1);
+    const rotation = normalizeRotation((pdfPage.rotate || 0) + (model.rotation || 0));
+    const base = pdfPage.getViewport({ scale: 1, rotation });
+    const cssScale = Math.max(
+      0.12,
+      Math.min(maxWidth / base.width, maxHeight / base.height, 1.8)
+    );
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.6);
+    const viewport = pdfPage.getViewport({ scale: cssScale * dpr, rotation });
+
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+
+    const cssWidth = Math.floor(viewport.width / dpr);
+    const cssHeight = Math.floor(viewport.height / dpr);
+    canvas.style.width = cssWidth + "px";
+    canvas.style.height = cssHeight + "px";
+
+    const context = canvas.getContext("2d", { alpha: false });
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await pdfPage.render({ canvasContext: context, viewport }).promise;
+
+    return { width: cssWidth, height: cssHeight, rotation };
+  }
+
+  function commitAnnotations(pageId, annotations, recordHistory = true) {
+    if (!getPageById(pageId)) return;
+    if (recordHistory) pushHistory();
+
+    const cleaned = deepClone(annotations || []);
+    if (cleaned.length) state.annotations[pageId] = cleaned;
+    else delete state.annotations[pageId];
+
+    renderPages();
+    renderSidebar();
+    renderInspector();
+    updateToolbarState();
+    setStatus(cleaned.length ? cleaned.length + " edits saved" : "Edits cleared");
+  }
+
+  async function openPageEditor(pageId) {
+    const page = getPageById(pageId);
+    if (!page) return;
+
+    state.selected.clear();
+    state.selected.add(pageId);
+    state.lastSelectedId = pageId;
+    state.activeTool = "edit";
+    syncSelectionUI();
+    renderInspector();
+    updateToolbarState();
+
+    try {
+      setStatus("Opening free editor…");
+      const editor = await ensureEditor();
+      await editor.open(pageId);
+      setStatus("Editor ready");
+    } catch (error) {
+      console.error(error);
+      setStatus("Editor failed to load");
+      showToast("Could not load free edit mode.", 2800);
+    }
+  }
+
+  window.iWeatherPDFEditorHost = {
+    uid,
+    normalizeRotation,
+    getPage: (pageId) => {
+      const page = getPageById(pageId);
+      return page ? deepClone(page) : null;
+    },
+    getPageIndex: (pageId) => state.pages.findIndex((page) => page.id === pageId),
+    getDocumentName: (docId) => {
+      const doc = getDocumentById(docId);
+      return doc ? doc.name : "";
+    },
+    getAnnotations,
+    commitAnnotations,
+    renderPage: renderEditorPage,
+    showToast,
+    setStatus
+  };
 
   function openPicker() {
     if (!state.loadingFiles) els.fileInput.click();
@@ -1099,7 +1368,11 @@
       } else if (state.activeTool === "split") {
         showToast("Select pages, then Export selected.");
       } else if (state.activeTool === "edit") {
-        showToast("Select pages to rotate, duplicate, or delete.");
+        if (state.selected.size === 1) {
+          openPageEditor([...state.selected][0]);
+        } else {
+          showToast("Select one page to open free edit.");
+        }
       }
 
       renderInspector();
@@ -1110,8 +1383,8 @@
   $$(".view-button").forEach((button) => {
     button.addEventListener("click", () => {
       state.view = button.dataset.view;
-      $$(".view-button").forEach((item) => item.classList.toggle("is-active", item === button));
-      els.pageGrid.classList.toggle("is-list", state.view === "list");
+      $(".view-button").forEach((item) => item.classList.toggle("is-active", item === button));
+      renderPages();
     });
   });
 
@@ -1148,6 +1421,7 @@
   });
 
   window.addEventListener("keydown", (event) => {
+    if (document.body.classList.contains("pdf-editor-open")) return;
     const modifier = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();
     const target = event.target;

@@ -61,6 +61,7 @@
 
   let toastTimer;
   let pointerDrag = null;
+  const textRunCache = new Map();
 
   function uid(prefix) {
     return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
@@ -177,12 +178,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=6";
+      link.href = "./editor.css?v=7";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=6", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=7", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -520,7 +521,10 @@
 
     state.documents = state.documents.filter((item) => item.id !== id);
     state.pages = state.pages.filter((page) => page.docId !== id);
-    removedPageIds.forEach((pageId) => delete state.annotations[pageId]);
+    removedPageIds.forEach((pageId) => {
+      delete state.annotations[pageId];
+      textRunCache.delete(pageId);
+    });
 
     for (const selectedId of [...state.selected]) {
       const page = getPageById(selectedId);
@@ -1085,6 +1089,7 @@
 
     state.pages.splice(index, 1);
     delete state.annotations[pageId];
+    textRunCache.delete(pageId);
     state.selected.delete(pageId);
     if (state.lastSelectedId === pageId) state.lastSelectedId = null;
 
@@ -1112,7 +1117,10 @@
     const removedIds = new Set(state.selected);
     pushHistory();
     state.pages = state.pages.filter((page) => !removedIds.has(page.id));
-    removedIds.forEach((pageId) => delete state.annotations[pageId]);
+    removedIds.forEach((pageId) => {
+      delete state.annotations[pageId];
+      textRunCache.delete(pageId);
+    });
     state.selected.clear();
     state.lastSelectedId = null;
     renderWorkspace();
@@ -1292,6 +1300,8 @@
   }
 
   async function getPageTextRuns(pageId) {
+    if (textRunCache.has(pageId)) return deepClone(textRunCache.get(pageId));
+
     const model = getPageById(pageId);
     if (!model) return [];
     const doc = getDocumentById(model.docId);
@@ -1364,7 +1374,7 @@
       if (key) counts.set(key, (counts.get(key) || 0) + 1);
     }
 
-    return lines
+    const result = lines
       .filter((line) => line.text.trim() && line.width > 1)
       .map((line, lineIndex) => {
         const y = line.baseline - line.size * 0.82;
@@ -1392,6 +1402,13 @@
           uniqueOriginal: (counts.get(original.trim()) || 0) === 1
         };
       });
+
+    textRunCache.set(pageId, deepClone(result));
+    if (textRunCache.size > 80) {
+      const oldest = textRunCache.keys().next().value;
+      if (oldest) textRunCache.delete(oldest);
+    }
+    return deepClone(result);
   }
 
   function decodePdfLiteralString(body) {

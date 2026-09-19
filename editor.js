@@ -304,13 +304,15 @@
       var aspect = image.naturalWidth / Math.max(1, image.naturalHeight);
       var w = 0.28;
       var hh = clamp(w / aspect, 0.08, 0.45);
+      var center = displayToCanonical({ x: 0.5, y: 0.5 }, active.rotation);
       active.annotations.push({
         id: h.uid("edit"),
         type: "image",
-        x: 0.5 - w / 2,
-        y: 0.5 - hh / 2,
-        w: w,
-        h: hh,
+        cx: center.x,
+        cy: center.y,
+        widthN: w,
+        heightN: hh,
+        angle: normRotation(-active.rotation),
         src: src
       });
       active.selectedId = active.annotations[active.annotations.length - 1].id;
@@ -414,7 +416,8 @@
         y: canonical.y,
         text: text.slice(0, 2000),
         color: active.color.value,
-        size: Number(active.size.value) / Math.max(1, minDim)
+        size: Number(active.size.value) / Math.max(1, minDim),
+        angle: normRotation(-active.rotation)
       });
       active.selectedId = active.annotations[active.annotations.length - 1].id;
       draw();
@@ -511,6 +514,11 @@
       });
       return;
     }
+    if (target.type === "image") {
+      target.cx = clamp(original.cx + dx, 0, 1);
+      target.cy = clamp(original.cy + dy, 0, 1);
+      return;
+    }
     target.x = clamp(original.x + dx, 0, Math.max(0, 1 - (original.w || 0)));
     target.y = clamp(original.y + dy, 0, Math.max(0, 1 - (original.h || 0)));
   }
@@ -534,6 +542,18 @@
       if (item.type === "text") {
         var anchor = canonicalToDisplay({ x: item.x, y: item.y }, active.rotation);
         if (Math.abs(anchor.x - displayPoint.x) < 0.12 && Math.abs(anchor.y - displayPoint.y) < 0.05) return item;
+        continue;
+      }
+
+      if (item.type === "image") {
+        var center = canonicalToDisplay({ x: item.cx, y: item.cy }, active.rotation);
+        var minPixels = Math.min(active.overlay.clientWidth, active.overlay.clientHeight);
+        var hitW = (item.widthN || 0.25) * minPixels / Math.max(1, active.overlay.clientWidth);
+        var hitH = (item.heightN || 0.2) * minPixels / Math.max(1, active.overlay.clientHeight);
+        if (
+          Math.abs(center.x - displayPoint.x) <= hitW / 2 + 0.015 &&
+          Math.abs(center.y - displayPoint.y) <= hitH / 2 + 0.015
+        ) return item;
         continue;
       }
 
@@ -585,7 +605,7 @@
         var anchor = canonicalToDisplay({ x: item.x, y: item.y }, rotation);
         var fontPx = Math.max(8, (item.size || 0.04) * minDim);
         ctx.translate(anchor.x * width, anchor.y * height);
-        ctx.rotate(normRotation(rotation) * Math.PI / 180);
+        ctx.rotate(normRotation((item.angle || 0) + rotation) * Math.PI / 180);
         ctx.fillStyle = item.color || "#111111";
         ctx.font = "600 " + fontPx + "px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
         ctx.textBaseline = "top";
@@ -594,7 +614,11 @@
           ctx.fillText(line, 0, index * fontPx * 1.2);
         });
       } else if (item.type === "image") {
-        var imageRect = rectToDisplay(item, rotation);
+        var imageCenter = canonicalToDisplay({ x: item.cx, y: item.cy }, rotation);
+        var imageMin = Math.min(width, height);
+        var imageW = (item.widthN || 0.25) * imageMin;
+        var imageH = (item.heightN || 0.2) * imageMin;
+        var imageAngle = normRotation((item.angle || 0) + rotation);
         var promise = getImage(item.src);
         var cached = imageCache.get(item.src);
         Promise.resolve(cached || promise).then(function (image) {
@@ -602,9 +626,18 @@
           if (active && allowAsyncImages) {
             var c = active.overlay.getContext("2d");
             c.save();
-            c.drawImage(image, imageRect.x * width, imageRect.y * height, imageRect.w * width, imageRect.h * height);
+            c.translate(imageCenter.x * width, imageCenter.y * height);
+            c.rotate(imageAngle * Math.PI / 180);
+            c.drawImage(image, -imageW / 2, -imageH / 2, imageW, imageH);
             c.restore();
-            if (selectedId === item.id) drawSelection(c, imageRect, width, height);
+            if (selectedId === item.id) {
+              drawSelection(c, {
+                x: imageCenter.x - imageW / width / 2,
+                y: imageCenter.y - imageH / height / 2,
+                w: imageW / width,
+                h: imageH / height
+              }, width, height);
+            }
           }
         });
       } else {
@@ -650,6 +683,12 @@
             var maxY = Math.max.apply(Math, ys);
             box = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
           }
+        } else if (item.type === "image") {
+          var cpt = canonicalToDisplay({ x: item.cx, y: item.cy }, rotation);
+          var md = Math.min(width, height);
+          var iw = (item.widthN || 0.25) * md / width;
+          var ih = (item.heightN || 0.2) * md / height;
+          box = { x: cpt.x - iw / 2, y: cpt.y - ih / 2, w: iw, h: ih };
         } else {
           box = rectToDisplay(item, rotation);
         }
@@ -691,15 +730,24 @@
         }
       } else if (item.type === "text") {
         var fontPx = Math.max(8, (item.size || 0.04) * minDim);
+        ctx.translate(item.x * width, item.y * height);
+        ctx.rotate(normRotation(item.angle || 0) * Math.PI / 180);
         ctx.fillStyle = item.color || "#111111";
         ctx.font = "600 " + fontPx + "px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
         ctx.textBaseline = "top";
         String(item.text || "").split(/\r?\n/).forEach(function (line, index) {
-          ctx.fillText(line, item.x * width, item.y * height + index * fontPx * 1.2);
+          ctx.fillText(line, 0, index * fontPx * 1.2);
         });
       } else if (item.type === "image") {
         var image = await getImage(item.src);
-        if (image) ctx.drawImage(image, item.x * width, item.y * height, item.w * width, item.h * height);
+        if (image) {
+          var imageMin = Math.min(width, height);
+          var imageW = (item.widthN || 0.25) * imageMin;
+          var imageH = (item.heightN || 0.2) * imageMin;
+          ctx.translate(item.cx * width, item.cy * height);
+          ctx.rotate(normRotation(item.angle || 0) * Math.PI / 180);
+          ctx.drawImage(image, -imageW / 2, -imageH / 2, imageW, imageH);
+        }
       } else {
         var x = item.x * width;
         var y = item.y * height;

@@ -180,12 +180,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=9";
+      link.href = "./editor.css?v=10";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=9", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=10", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -566,15 +566,17 @@
     }
     if (!state.pages.length) state.activePageId = null;
 
+    const activeIndex = state.activePageId
+      ? state.pages.findIndex((page) => page.id === state.activePageId)
+      : -1;
     els.workspaceTitle.textContent =
-      count === 1 ? (state.documents[0].label || state.documents[0].name) : count + " PDFs in workspace";
+      activeIndex >= 0
+        ? "Page " + (activeIndex + 1) + " of " + state.pages.length
+        : state.pages.length + " pages";
     els.workspaceMeta.textContent =
-      state.pages.length +
-      " page" +
-      (state.pages.length === 1 ? "" : "s") +
-      " · " +
-      formatBytes(state.documents.reduce((sum, doc) => sum + doc.size, 0)) +
-      " · local only";
+      count === 1
+        ? (state.documents[0].label || state.documents[0].name)
+        : count + " PDFs · " + formatBytes(state.documents.reduce((sum, doc) => sum + doc.size, 0));
     els.pageCount.textContent = String(state.pages.length);
 
     renderSidebar();
@@ -1875,14 +1877,14 @@
     const base = pdfPage.getViewport({ scale: 1, rotation });
     const cssScale = Math.max(
       0.12,
-      Math.min(maxWidth / base.width, maxHeight / base.height, 1.8)
+      Math.min(maxWidth / base.width, maxHeight / base.height, 6)
     );
     const cssViewport = pdfPage.getViewport({ scale: cssScale, rotation });
     const cssWidth = Math.max(1, Math.floor(cssViewport.width));
     const cssHeight = Math.max(1, Math.floor(cssViewport.height));
     const pixelBudgetDpr = Math.sqrt(12000000 / Math.max(1, cssWidth * cssHeight));
     const requestedDpr = Math.max(window.devicePixelRatio || 1, 1.8);
-    const dpr = Math.max(1, Math.min(requestedDpr, 2.5, pixelBudgetDpr));
+    const dpr = Math.max(0.65, Math.min(requestedDpr, 2.5, pixelBudgetDpr));
     const viewport = pdfPage.getViewport({ scale: cssScale * dpr, rotation });
 
     canvas.width = Math.max(1, Math.floor(viewport.width));

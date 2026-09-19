@@ -50,6 +50,7 @@
     sidebarPages: $(".sidebar-note"),
     inspector: $("#inspector"),
     selectAllButton: $("#selectAllButton"),
+    deletePageButton: $("#deletePageButton"),
     exportButton: $("#exportButton"),
     undoButton: $("#undoButton"),
     redoButton: $("#redoButton"),
@@ -331,6 +332,7 @@
     const selectedCount = state.selected.size;
     els.selectAllButton.disabled = !hasPages;
     els.selectAllButton.textContent = selectedCount === state.pages.length && hasPages ? "Clear" : "Select all";
+    els.deletePageButton.disabled = !hasPages || !state.activePageId || !getPageById(state.activePageId);
 
     const splitExport = state.activeTool === "split" && selectedCount > 0;
     setExportLabel(splitExport ? "Export selected" : "Export PDF");
@@ -1073,6 +1075,36 @@
     showToast("Page" + (newSelected.size === 1 ? "" : "s") + " duplicated");
   }
 
+  function deleteCurrentPage() {
+    const pageId = state.activePageId;
+    const index = state.pages.findIndex((page) => page.id === pageId);
+    if (!pageId || index < 0) return;
+
+    saveCurrentEditor();
+    pushHistory();
+
+    state.pages.splice(index, 1);
+    delete state.annotations[pageId];
+    state.selected.delete(pageId);
+    if (state.lastSelectedId === pageId) state.lastSelectedId = null;
+
+    if (state.pages.length) {
+      const nextIndex = Math.min(index, state.pages.length - 1);
+      state.activePageId = state.pages[nextIndex].id;
+      state.selected.clear();
+      state.selected.add(state.activePageId);
+      state.lastSelectedId = state.activePageId;
+    } else {
+      state.activePageId = null;
+      state.selected.clear();
+      state.lastSelectedId = null;
+    }
+
+    renderWorkspace();
+    setStatus(state.pages.length + " pages ready");
+    showToast("Page deleted · Undo available");
+  }
+
   function deleteSelected() {
     if (!state.selected.size) return;
     saveCurrentEditor();
@@ -1479,6 +1511,7 @@
   els.fileInput.addEventListener("change", () => addFiles(els.fileInput.files));
 
   els.selectAllButton.addEventListener("click", selectAll);
+  els.deletePageButton.addEventListener("click", deleteCurrentPage);
   els.exportButton.addEventListener("click", () => {
     saveCurrentEditor();
     const pages =

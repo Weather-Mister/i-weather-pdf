@@ -363,51 +363,75 @@
 
     var source = existing || run;
     var rect = rectToDisplay(source, active.rotation);
-    var input = document.createElement("input");
-    input.type = "text";
-    input.className = "pdf-editor-text-input";
-    input.value = existing ? existing.text : run.text;
-    input.style.left = (rect.x * 100) + "%";
-    input.style.top = (rect.y * 100) + "%";
-    input.style.width = Math.max(90, rect.w * active.stage.clientWidth + 28) + "px";
-    input.style.height = Math.max(28, rect.h * active.stage.clientHeight + 8) + "px";
+    var colors = existing
+      ? { color: existing.color || "#111111", bg: existing.bg || "#ffffff" }
+      : sampleExistingTextColors(run);
+
+    var editor = document.createElement("span");
+    editor.className = "pdf-editor-direct-text";
+    editor.contentEditable = "true";
+    editor.spellcheck = false;
+    editor.textContent = existing ? existing.text : run.text;
+    editor.style.left = (rect.x * 100) + "%";
+    editor.style.top = (rect.y * 100) + "%";
+    editor.style.minWidth = Math.max(8, rect.w * active.stage.clientWidth) + "px";
+    editor.style.maxWidth = Math.max(
+      24,
+      (1 - rect.x) * active.stage.clientWidth
+    ) + "px";
+    editor.style.minHeight = Math.max(14, rect.h * active.stage.clientHeight) + "px";
+    editor.style.color = colors.color;
+    editor.style.background = colors.bg;
 
     var canonicalHeight = active.rotation % 180
       ? active.stage.clientWidth
       : active.stage.clientHeight;
-    var fontPx = Math.max(10, (source.size || 0.02) * canonicalHeight);
-    input.style.font =
+    var fontPx = Math.max(8, (source.size || 0.02) * canonicalHeight);
+    editor.style.font =
       (source.italic ? "italic " : "") +
       (source.bold ? "700 " : "400 ") +
       fontPx +
       "px " +
       fontFamilyCss(source);
+    editor.style.lineHeight = "1.06";
 
-    active.textHitLayer.appendChild(input);
+    active.textHitLayer.appendChild(editor);
 
     requestAnimationFrame(function () {
-      if (!input.isConnected) return;
-      input.focus({ preventScroll: true });
-      input.select();
+      if (!editor.isConnected) return;
+      editor.focus({ preventScroll: true });
+
+      var selection = window.getSelection();
+      if (!selection) return;
+      var range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
     });
 
     var closed = false;
     function finish(commit) {
       if (closed) return;
       closed = true;
-      var value = input.value;
-      input.remove();
+      var value = (editor.textContent || "").replace(/\r?\n/g, " ");
+      editor.remove();
       if (commit) commitTextReplacement(run, existing, value);
       else renderTextHitLayer();
     }
 
-    input.addEventListener("pointerdown", function (event) {
+    editor.addEventListener("pointerdown", function (event) {
       event.stopPropagation();
     });
-    input.addEventListener("click", function (event) {
+    editor.addEventListener("click", function (event) {
       event.stopPropagation();
     });
-    input.addEventListener("keydown", function (event) {
+    editor.addEventListener("paste", function (event) {
+      event.preventDefault();
+      var text = (event.clipboardData || window.clipboardData).getData("text");
+      document.execCommand("insertText", false, text.replace(/\r?\n/g, " "));
+    });
+    editor.addEventListener("keydown", function (event) {
       event.stopPropagation();
       if (event.key === "Enter") {
         event.preventDefault();
@@ -417,7 +441,7 @@
         finish(false);
       }
     });
-    input.addEventListener("blur", function () {
+    editor.addEventListener("blur", function () {
       finish(true);
     });
   }
@@ -470,6 +494,30 @@
         event.preventDefault();
         event.stopPropagation();
         beginInlineTextEdit(run, null);
+      });
+      active.textHitLayer.appendChild(hit);
+    });
+
+    active.annotations.forEach(function (item) {
+      if (item.type !== "textedit") return;
+      var rect = rectToDisplay(item, active.rotation);
+      var hit = document.createElement("button");
+      hit.type = "button";
+      hit.className = "pdf-editor-text-hit is-edited";
+      hit.style.left = (rect.x * 100) + "%";
+      hit.style.top = (rect.y * 100) + "%";
+      hit.style.width = (rect.w * 100) + "%";
+      hit.style.height = (rect.h * 100) + "%";
+      hit.title = item.text || "Deleted text";
+      hit.setAttribute("aria-label", "Edit replacement text");
+      hit.addEventListener("pointerdown", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      hit.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        beginInlineTextEdit(null, item);
       });
       active.textHitLayer.appendChild(hit);
     });
@@ -729,7 +777,7 @@
     try {
       var mountWidth = embedded ? Math.max(260, options.mount.clientWidth - 36) : window.innerWidth - 70;
       var mountHeight = embedded ? Math.max(320, options.mount.clientHeight - 118) : window.innerHeight - 150;
-      var maxWidth = Math.min(1200, Math.max(260, mountWidth));
+      var maxWidth = Math.min(1600, Math.max(260, mountWidth));
       var maxHeight = Math.max(320, mountHeight);
       var dims = await h.renderPage(pageId, pageCanvas, maxWidth, maxHeight);
       if (!active || active.pageId !== pageId) return;
@@ -782,7 +830,7 @@
 
   function resizeOverlay(cssWidth, cssHeight) {
     if (!active) return;
-    var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    var dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1.6), 2.25);
     active.overlay.width = Math.max(1, Math.round(cssWidth * dpr));
     active.overlay.height = Math.max(1, Math.round(cssHeight * dpr));
     active.overlay.style.width = cssWidth + "px";

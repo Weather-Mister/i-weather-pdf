@@ -47,8 +47,12 @@
     pageGrid: $("#pageGrid"),
     sidebarPages: $(".sidebar-note"),
     inspector: $("#inspector"),
+    rotateLeftButton: $("#rotateLeftButton"),
+    rotateRightButton: $("#rotateRightButton"),
+    duplicateButton: $("#duplicateButton"),
     selectAllButton: $("#selectAllButton"),
     deletePageButton: $("#deletePageButton"),
+    extractButton: $("#extractButton"),
     exportButton: $("#exportButton"),
     undoButton: $("#undoButton"),
     redoButton: $("#redoButton"),
@@ -300,19 +304,24 @@
 
   function updateToolbarState() {
     const hasPages = state.pages.length > 0;
-    $$(".tool-button").forEach((button) => {
-      button.disabled = !hasPages;
-      button.classList.toggle("is-active", button.dataset.tool === state.activeTool);
-    });
-
     const selectedCount = state.selected.size;
-    els.selectAllButton.disabled = !hasPages;
-    els.selectAllButton.textContent = selectedCount === state.pages.length && hasPages ? "Clear" : "Select all";
-    els.deletePageButton.disabled = !hasPages || !state.activePageId || !getPageById(state.activePageId);
+    const hasSelection = selectedCount > 0;
+    const allSelected = hasPages && selectedCount === state.pages.length;
 
-    const splitExport = state.activeTool === "split" && selectedCount > 0;
-    setExportLabel(splitExport ? "Export selected" : "Export PDF");
-    els.exportButton.disabled = !hasPages || state.exporting || (state.activeTool === "split" && selectedCount === 0);
+    if (els.rotateLeftButton) els.rotateLeftButton.disabled = !hasSelection;
+    if (els.rotateRightButton) els.rotateRightButton.disabled = !hasSelection;
+    if (els.duplicateButton) els.duplicateButton.disabled = !hasSelection;
+
+    els.selectAllButton.disabled = !hasPages;
+    els.selectAllButton.classList.toggle("is-active", allSelected);
+    els.selectAllButton.title = allSelected ? "Clear selection" : "Select all pages";
+    els.selectAllButton.setAttribute("aria-label", allSelected ? "Clear selection" : "Select all pages");
+
+    els.deletePageButton.disabled = !hasSelection;
+    if (els.extractButton) els.extractButton.disabled = !hasSelection || state.exporting;
+
+    setExportLabel("Export");
+    els.exportButton.disabled = !hasPages || state.exporting;
 
     updateHistoryButtons();
   }
@@ -746,7 +755,6 @@
 
     if (previousActive !== id) {
       renderPages();
-      renderSidebar();
     }
   }
 
@@ -901,7 +909,7 @@
   }
 
   function renderInspector() {
-    if (!els.inspector) return;
+    if (!els.inspector || els.inspector.hidden) return;
     els.inspector.replaceChildren();
 
     const heading = document.createElement("div");
@@ -1088,19 +1096,33 @@
   function deleteSelected() {
     if (!state.selected.size) return;
     saveCurrentEditor();
+
     const count = state.selected.size;
     const removedIds = new Set(state.selected);
+    const activeIndex = Math.max(0, state.pages.findIndex((page) => page.id === state.activePageId));
+
     pushHistory();
     state.pages = state.pages.filter((page) => !removedIds.has(page.id));
     removedIds.forEach((pageId) => {
       delete state.annotations[pageId];
       textRunCache.delete(pageId);
     });
+
     state.selected.clear();
     state.lastSelectedId = null;
+
+    if (state.pages.length) {
+      const next = state.pages[Math.min(activeIndex, state.pages.length - 1)];
+      state.activePageId = next.id;
+      state.selected.add(next.id);
+      state.lastSelectedId = next.id;
+    } else {
+      state.activePageId = null;
+    }
+
     renderWorkspace();
     setStatus(state.pages.length + " pages ready");
-    showToast(count + " page" + (count === 1 ? "" : "s") + " deleted");
+    showToast(count + " page" + (count === 1 ? "" : "s") + " deleted · Undo available");
   }
 
   function moveSelected(delta) {
@@ -1955,19 +1977,21 @@
 
   els.fileInput.addEventListener("change", () => addFiles(els.fileInput.files));
 
+  if (els.rotateLeftButton) els.rotateLeftButton.addEventListener("click", () => rotateSelected(-90));
+  if (els.rotateRightButton) els.rotateRightButton.addEventListener("click", () => rotateSelected(90));
+  if (els.duplicateButton) els.duplicateButton.addEventListener("click", duplicateSelected);
   els.selectAllButton.addEventListener("click", selectAll);
-  els.deletePageButton.addEventListener("click", deleteCurrentPage);
+  els.deletePageButton.addEventListener("click", deleteSelected);
+  if (els.extractButton) {
+    els.extractButton.addEventListener("click", () => {
+      saveCurrentEditor();
+      if (!state.selected.size) return;
+      exportPages(selectedPages(), state.selected.size === 1 ? "iweather-page.pdf" : "iweather-extract.pdf");
+    });
+  }
   els.exportButton.addEventListener("click", () => {
     saveCurrentEditor();
-    const pages =
-      state.activeTool === "split" && state.selected.size
-        ? selectedPages()
-        : state.pages;
-    const filename =
-      state.activeTool === "split" && state.selected.size
-        ? "iweather-extract.pdf"
-        : null;
-    exportPages(pages, filename);
+    exportPages(state.pages, null);
   });
 
   els.undoButton.addEventListener("click", undo);

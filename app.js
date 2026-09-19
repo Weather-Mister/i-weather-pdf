@@ -1163,7 +1163,14 @@
     if (data.raf) cancelAnimationFrame(data.raf);
     data.handle.removeEventListener("pointermove", onPointerReorderMove);
 
-    $$(".sidebar-page-row.is-dragging, .sidebar-page-row.drop-target").forEach((row) => {
+    if (data.moved && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const target = element && element.closest ? element.closest(".sidebar-page-row") : null;
+      const targetId = target ? target.dataset.pageId : null;
+      if (targetId && targetId !== data.pageId) data.targetId = targetId;
+    }
+
+    $(".sidebar-page-row.is-dragging, .sidebar-page-row.drop-target").forEach((row) => {
       row.classList.remove("is-dragging", "drop-target");
     });
 

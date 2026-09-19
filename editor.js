@@ -1335,6 +1335,13 @@
 
   function keydown(event) {
     if (!active) return;
+
+    var directTextTarget =
+      event.target &&
+      event.target.closest &&
+      event.target.closest(".pdf-editor-direct-text");
+    if (directTextTarget) return;
+
     var modifier = event.metaKey || event.ctrlKey;
     var key = event.key.toLowerCase();
 
@@ -1359,10 +1366,20 @@
     }
     if (event.key === "Escape") {
       event.preventDefault();
+
       if (active.selectedId) {
         active.selectedId = null;
         draw();
-      } else {
+        return;
+      }
+
+      if (active.tool !== "select") {
+        setTool("select");
+        active.status.textContent = "Selection mode";
+        return;
+      }
+
+      if (!active.embedded) {
         close(false);
       }
     }

@@ -1235,7 +1235,7 @@
     stroke.title = "Stroke width";
 
     var size = document.createElement("select");
-    size.className = "pdf-editor-btn";
+    size.className = "pdf-editor-btn pdf-editor-size-select";
     size.title = "Text size";
     [14,18,24,32,44,60].forEach(function (value) {
       var option = document.createElement("option");

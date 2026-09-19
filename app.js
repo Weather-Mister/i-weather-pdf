@@ -177,12 +177,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=5";
+      link.href = "./editor.css?v=6";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=5", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=6", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -1279,6 +1279,452 @@
     }
   }
 
+  function classifyTextFont(fontName, fontFamily) {
+    const source = ((fontName || "") + " " + (fontFamily || "")).toLowerCase();
+    let family = "sans";
+    if (/times|serif|georgia|garamond|cambria/.test(source)) family = "serif";
+    else if (/courier|mono|consol|menlo/.test(source)) family = "mono";
+    return {
+      family,
+      bold: /bold|black|heavy|semib|demi/.test(source),
+      italic: /italic|oblique/.test(source)
+    };
+  }
+
+  async function getPageTextRuns(pageId) {
+    const model = getPageById(pageId);
+    if (!model) return [];
+    const doc = getDocumentById(model.docId);
+    if (!doc) return [];
+
+    const page = await doc.pdfJs.getPage(model.sourceIndex + 1);
+    const content = await page.getTextContent();
+    const viewport = page.getViewport({ scale: 1, rotation: 0 });
+    const fragments = [];
+
+    for (const item of content.items || []) {
+      if (!item || typeof item.str !== "string" || !item.str.trim()) continue;
+      const tx = window.pdfjsLib.Util.transform(viewport.transform, item.transform);
+      const size = Math.hypot(tx[2], tx[3]);
+      if (!Number.isFinite(size) || size <= 0) continue;
+
+      const style = content.styles && content.styles[item.fontName];
+      const x = tx[4];
+      const baseline = tx[5];
+      const width = Math.abs(item.width) || size * item.str.length * 0.5;
+
+      fragments.push({
+        text: item.str,
+        x,
+        baseline,
+        width,
+        size,
+        font: classifyTextFont(item.fontName, style && style.fontFamily)
+      });
+    }
+
+    fragments.sort((a, b) => (a.baseline - b.baseline) || (a.x - b.x));
+    const lines = [];
+
+    for (const fragment of fragments) {
+      const last = lines[lines.length - 1];
+      const sameLine =
+        last &&
+        Math.abs(last.baseline - fragment.baseline) <= Math.max(1.5, fragment.size * 0.25) &&
+        fragment.x >= last.x - 1 &&
+        fragment.x - (last.x + last.width) < fragment.size * 2.2;
+
+      if (sameLine) {
+        const gap = fragment.x - (last.x + last.width);
+        if (
+          gap > fragment.size * 0.22 &&
+          !/\s$/.test(last.text) &&
+          !/^\s/.test(fragment.text)
+        ) {
+          last.text += " ";
+        }
+        last.text += fragment.text;
+        last.width = fragment.x + fragment.width - last.x;
+        last.size = Math.max(last.size, fragment.size);
+      } else {
+        lines.push({
+          text: fragment.text,
+          x: fragment.x,
+          baseline: fragment.baseline,
+          width: fragment.width,
+          size: fragment.size,
+          font: fragment.font
+        });
+      }
+    }
+
+    const counts = new Map();
+    for (const line of lines) {
+      const key = line.text.trim();
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    }
+
+    return lines
+      .filter((line) => line.text.trim() && line.width > 1)
+      .map((line, lineIndex) => {
+        const y = line.baseline - line.size * 0.82;
+        const height = line.size * 1.06;
+        const original = line.text;
+        return {
+          key:
+            lineIndex +
+            ":" +
+            original +
+            ":" +
+            line.x.toFixed(2) +
+            ":" +
+            line.baseline.toFixed(2),
+          text: original,
+          x: line.x / viewport.width,
+          y: y / viewport.height,
+          w: line.width / viewport.width,
+          h: height / viewport.height,
+          baseline: line.baseline / viewport.height,
+          size: line.size / viewport.height,
+          family: line.font.family,
+          bold: line.font.bold,
+          italic: line.font.italic,
+          uniqueOriginal: (counts.get(original.trim()) || 0) === 1
+        };
+      });
+  }
+
+  function decodePdfLiteralString(body) {
+    let out = "";
+    for (let i = 0; i < body.length; i++) {
+      const char = body[i];
+      if (char !== "\\") {
+        out += char;
+        continue;
+      }
+
+      const next = body[++i];
+      if (next === undefined) break;
+      if (next === "n") out += "\n";
+      else if (next === "r") out += "\r";
+      else if (next === "t") out += "\t";
+      else if (next === "b") out += "\b";
+      else if (next === "f") out += "\f";
+      else if (next >= "0" && next <= "7") {
+        let octal = next;
+        while (
+          octal.length < 3 &&
+          body[i + 1] >= "0" &&
+          body[i + 1] <= "7"
+        ) {
+          octal += body[++i];
+        }
+        out += String.fromCharCode(parseInt(octal, 8));
+      } else if (next === "\n") {
+        // PDF line continuation.
+      } else {
+        out += next;
+      }
+    }
+    return out;
+  }
+
+  function decodePdfHexString(body) {
+    const hex = body.replace(/[^0-9a-fA-F]/g, "");
+    let out = "";
+    for (let i = 0; i + 1 < hex.length; i += 2) {
+      out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+    }
+    if (hex.length % 2) {
+      out += String.fromCharCode(parseInt(hex[hex.length - 1] + "0", 16));
+    }
+    return out;
+  }
+
+  function scanPdfStringTokens(source) {
+    const tokens = [];
+
+    for (let i = 0; i < source.length; i++) {
+      const char = source[i];
+
+      if (char === "%") {
+        while (i < source.length && source[i] !== "\n") i++;
+        continue;
+      }
+
+      if (char === "(") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < source.length && depth > 0) {
+          if (source[j] === "\\") {
+            j += 2;
+            continue;
+          }
+          if (source[j] === "(") depth++;
+          else if (source[j] === ")") depth--;
+          j++;
+        }
+        const body = source.slice(i + 1, j - 1);
+        tokens.push({
+          start: i,
+          end: j,
+          kind: "literal",
+          text: decodePdfLiteralString(body)
+        });
+        i = j - 1;
+        continue;
+      }
+
+      if (char === "<" && source[i + 1] !== "<") {
+        const j = source.indexOf(">", i + 1);
+        if (j === -1) continue;
+        tokens.push({
+          start: i,
+          end: j + 1,
+          kind: "hex",
+          text: decodePdfHexString(source.slice(i + 1, j))
+        });
+        i = j;
+        continue;
+      }
+
+      if (char === "<" && source[i + 1] === "<") i++;
+    }
+
+    return tokens;
+  }
+
+  function blankPdfTextInStream(source, target) {
+    const wanted = String(target || "").replace(/\s+/g, "");
+    if (!wanted) return null;
+
+    const tokens = scanPdfStringTokens(source);
+    if (!tokens.length) return null;
+
+    const chars = [];
+    tokens.forEach((token, tokenIndex) => {
+      for (const char of token.text) {
+        if (!/\s/.test(char)) chars.push({ char, tokenIndex });
+      }
+    });
+
+    const flattened = chars.map((item) => item.char).join("");
+    const start = flattened.indexOf(wanted);
+    if (start === -1) return null;
+
+    const involved = new Set();
+    for (let i = start; i < start + wanted.length; i++) {
+      involved.add(chars[i].tokenIndex);
+    }
+
+    for (const tokenIndex of involved) {
+      const ownedIndexes = [];
+      for (let i = 0; i < chars.length; i++) {
+        if (chars[i].tokenIndex === tokenIndex) ownedIndexes.push(i);
+      }
+      if (
+        !ownedIndexes.every(
+          (charIndex) => charIndex >= start && charIndex < start + wanted.length
+        )
+      ) {
+        return null;
+      }
+    }
+
+    let rewritten = source;
+    [...involved]
+      .sort((a, b) => b - a)
+      .forEach((tokenIndex) => {
+        const token = tokens[tokenIndex];
+        rewritten =
+          rewritten.slice(0, token.start) +
+          (token.kind === "hex" ? "<>" : "()") +
+          rewritten.slice(token.end);
+      });
+
+    return rewritten;
+  }
+
+  function bytesToLatin1(bytes) {
+    let result = "";
+    for (let i = 0; i < bytes.length; i += 8192) {
+      result += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    }
+    return result;
+  }
+
+  function latin1ToBytes(text) {
+    const bytes = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255;
+    return bytes;
+  }
+
+  function stripOriginalText(outputDocument, page, targets) {
+    const removed = new Set();
+    if (!targets.length) return removed;
+
+    const {
+      PDFName,
+      PDFArray,
+      PDFRawStream,
+      decodePDFRawStream
+    } = window.PDFLib;
+
+    if (!PDFName || !PDFArray || !PDFRawStream || !decodePDFRawStream) {
+      return removed;
+    }
+
+    const context = outputDocument.context;
+    let contents;
+
+    try {
+      contents = page.node.get(PDFName.of("Contents"));
+    } catch {
+      return removed;
+    }
+
+    if (!contents) return removed;
+    const refs = contents instanceof PDFArray ? contents.asArray() : [contents];
+
+    for (const ref of refs) {
+      let stream;
+      try {
+        stream = context.lookup(ref);
+      } catch {
+        continue;
+      }
+      if (!(stream instanceof PDFRawStream)) continue;
+
+      let source;
+      try {
+        source = bytesToLatin1(decodePDFRawStream(stream).decode());
+      } catch {
+        continue;
+      }
+
+      let changed = false;
+      for (const target of targets) {
+        if (removed.has(target)) continue;
+        const next = blankPdfTextInStream(source, target);
+        if (next !== null) {
+          source = next;
+          changed = true;
+          removed.add(target);
+        }
+      }
+
+      if (!changed) continue;
+      const fresh = context.stream(latin1ToBytes(source));
+      const freshRef = context.register(fresh);
+
+      if (contents instanceof PDFArray) {
+        const refIndex = contents.asArray().indexOf(ref);
+        if (refIndex >= 0) contents.set(refIndex, freshRef);
+      } else {
+        page.node.set(PDFName.of("Contents"), freshRef);
+      }
+    }
+
+    return removed;
+  }
+
+  function pdfRgb(hex) {
+    const raw = String(hex || "#111111").replace("#", "");
+    const value = parseInt(raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw, 16);
+    const safe = Number.isFinite(value) ? value : 0x111111;
+    return window.PDFLib.rgb(
+      ((safe >> 16) & 255) / 255,
+      ((safe >> 8) & 255) / 255,
+      (safe & 255) / 255
+    );
+  }
+
+  function textEditFontName(edit) {
+    const family =
+      edit.family === "serif"
+        ? "TimesRoman"
+        : edit.family === "mono"
+          ? "Courier"
+          : "Helvetica";
+
+    if (family === "TimesRoman") {
+      if (edit.bold && edit.italic) return "TimesRomanBoldItalic";
+      if (edit.bold) return "TimesRomanBold";
+      if (edit.italic) return "TimesRomanItalic";
+      return "TimesRoman";
+    }
+
+    if (family === "Courier") {
+      if (edit.bold && edit.italic) return "CourierBoldOblique";
+      if (edit.bold) return "CourierBold";
+      if (edit.italic) return "CourierOblique";
+      return "Courier";
+    }
+
+    if (edit.bold && edit.italic) return "HelveticaBoldOblique";
+    if (edit.bold) return "HelveticaBold";
+    if (edit.italic) return "HelveticaOblique";
+    return "Helvetica";
+  }
+
+  async function applyExistingTextEdits(output, page, crop, edits, stripped) {
+    const fallbackIds = new Set();
+    const fontCache = new Map();
+
+    async function getFont(edit) {
+      const name = textEditFontName(edit);
+      if (!fontCache.has(name)) {
+        fontCache.set(
+          name,
+          await output.embedFont(window.PDFLib.StandardFonts[name])
+        );
+      }
+      return fontCache.get(name);
+    }
+
+    for (const edit of edits) {
+      if (!stripped.has(edit.original)) {
+        page.drawRectangle({
+          x: crop.x + edit.x * crop.width,
+          y: crop.y + crop.height - (edit.y + edit.h) * crop.height,
+          width: edit.w * crop.width,
+          height: edit.h * crop.height,
+          color: pdfRgb(edit.bg || "#ffffff")
+        });
+      }
+
+      if (!String(edit.text || "").length) continue;
+
+      try {
+        const font = await getFont(edit);
+        const maxWidth = Math.max(1, edit.w * crop.width);
+        const baseSize = Math.max(4, edit.size * crop.height);
+        const minSize = Math.max(4, baseSize * 0.6);
+        let size = baseSize;
+
+        while (
+          size > minSize &&
+          font.widthOfTextAtSize(edit.text, size) > maxWidth
+        ) {
+          size -= Math.max(0.2, size * 0.04);
+        }
+
+        page.drawText(edit.text, {
+          x: crop.x + edit.x * crop.width,
+          y: crop.y + crop.height - edit.baseline * crop.height,
+          size: Math.max(minSize, size),
+          font,
+          color: pdfRgb(edit.color || "#111111")
+        });
+      } catch (error) {
+        console.warn("Vector text replacement fell back to canvas:", error);
+        fallbackIds.add(edit.id);
+      }
+    }
+
+    return fallbackIds;
+  }
+
   function sanitizeBaseName(name) {
     const base = (name || "document").replace(/\.pdf$/i, "");
     return base.replace(/[\\/:*?"<>|]+/g, "-").trim() || "document";
@@ -1332,10 +1778,28 @@
             typeof copied.getCropBox === "function"
               ? copied.getCropBox()
               : { x: 0, y: 0, width: copied.getWidth(), height: copied.getHeight() };
+          const pageEdits = state.annotations[model.id] || [];
+          const textEdits = pageEdits.filter((edit) => edit.type === "textedit");
+          const stripTargets = textEdits
+            .filter((edit) => edit.uniqueOriginal)
+            .map((edit) => edit.original);
+          const stripped = stripOriginalText(output, copied, stripTargets);
+          const rasterTextEditIds = await applyExistingTextEdits(
+            output,
+            copied,
+            crop,
+            textEdits,
+            stripped
+          );
+
           const overlayBytes = await editor.exportOverlay(
             model.id,
             crop.width,
-            crop.height
+            crop.height,
+            {
+              strippedOriginals: [...stripped],
+              textEditIds: [...rasterTextEditIds]
+            }
           );
           if (overlayBytes) {
             const overlayImage = await output.embedPng(overlayBytes);
@@ -1468,6 +1932,7 @@
       return doc ? (doc.label || doc.name) : "";
     },
     getAnnotations,
+    getPageTextRuns,
     commitAnnotations,
     renderPage: renderEditorPage,
     showToast,

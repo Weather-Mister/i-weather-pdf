@@ -315,7 +315,7 @@
       const remove = document.createElement("button");
       remove.className = "document-remove";
       remove.type = "button";
-      remove.setAttribute("aria-label", "Remove " + doc.name);
+      remove.setAttribute("aria-label", "Remove " + (doc.label || doc.name));
       remove.title = "Remove PDF";
       remove.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
       remove.addEventListener("click", (event) => {
@@ -327,6 +327,23 @@
       chip.append(dot, info, remove);
       els.documentList.append(chip);
     });
+  }
+
+  function makeDocumentLabel(name) {
+    const used = new Set(
+      state.documents
+        .filter((doc) => doc.name === name)
+        .map((doc) => doc.label || doc.name)
+    );
+    if (!used.has(name)) return name;
+
+    let copyNumber = 2;
+    let label = name + " · copy " + copyNumber;
+    while (used.has(label)) {
+      copyNumber++;
+      label = name + " · copy " + copyNumber;
+    }
+    return label;
   }
 
   async function loadOnePdf(file) {
@@ -344,12 +361,11 @@
     };
 
     const pdfJs = await task.promise;
-    const sameNameCount = state.documents.filter((item) => item.name === file.name).length;
     const doc = {
       id,
       file,
       name: file.name,
-      label: sameNameCount ? file.name + " · copy " + (sameNameCount + 1) : file.name,
+      label: makeDocumentLabel(file.name),
       size: file.size,
       lastModified: file.lastModified,
       pageCount: pdfJs.numPages,
@@ -468,7 +484,7 @@
     if (!state.pages.length) state.activeTool = null;
     render();
     setStatus(state.pages.length ? state.pages.length + " pages ready" : "Ready");
-    showToast(doc.name + " removed");
+    showToast((doc.label || doc.name) + " removed");
   }
 
   function render() {

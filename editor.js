@@ -244,7 +244,6 @@
   function syncInlineTextFormatting() {
     if (!active || !active.directTextEditor || !active.directTextEditor.isConnected) return;
     var editor = active.directTextEditor;
-    if (!editor.classList.contains("is-new")) return;
     var px = Number(active.size.value) || 24;
     editor.style.color = active.color.value;
     editor.style.fontFamily = textFontCss({ fontFamily: active.textFont.value });
@@ -265,7 +264,7 @@
   function applyTextFormatChange(property, value) {
     if (!active) return;
     var item = selectedAnnotation();
-    var selectedText = active.tool === "select" && item && item.type === "text";
+    var selectedText = item && (item.type === "text" || item.type === "textedit");
 
     if (property === "bold" || property === "italic" || property === "underline") {
       active.textStyle[property] = !!value;
@@ -273,9 +272,20 @@
 
     if (selectedText) {
       pushLocalHistory();
-      if (property === "fontFamily") item.fontFamily = value;
-      else if (property === "sizePx") item.size = Number(value) / Math.max(1, Math.min(active.overlay.clientWidth, active.overlay.clientHeight));
-      else if (property === "color") item.color = value;
+      if (property === "fontFamily") {
+        item.fontFamily = value;
+        var lower = String(value || "").toLowerCase();
+        item.family = /times|georgia|garamond|serif/.test(lower)
+          ? "serif"
+          : /courier|mono/.test(lower)
+            ? "mono"
+            : "sans";
+      } else if (property === "sizePx") {
+        var basis = item.type === "textedit"
+          ? (active.rotation % 180 ? active.overlay.clientWidth : active.overlay.clientHeight)
+          : Math.min(active.overlay.clientWidth, active.overlay.clientHeight);
+        item.size = Number(value) / Math.max(1, basis);
+      } else if (property === "color") item.color = value;
       else item[property] = !!value;
       active.status.textContent = "Text formatting updated";
     }
@@ -289,15 +299,26 @@
     if (!active || !active.props) return;
     var tool = active.tool;
     var selected = selectedAnnotation();
-    var selectedText = tool === "select" && selected && selected.type === "text";
-    var textVisible = tool === "text" || selectedText;
+    var selectedText = selected && (selected.type === "text" || selected.type === "textedit");
+    var textVisible = tool === "text" || tool === "edittext" || selectedText;
     var colorVisible = textVisible || tool === "pen" || tool === "rect";
     var strokeVisible = tool === "pen" || tool === "rect";
     var deleteVisible = tool === "select" && !!active.selectedId;
 
     if (selectedText) {
-      active.textFont.value = selected.fontFamily || "Arial";
-      active.size.value = String(Math.max(8, Math.round((selected.size || 0.04) * Math.max(1, Math.min(active.overlay.clientWidth, active.overlay.clientHeight)))));
+      var selectedFamily = selected.fontFamily ||
+        (selected.family === "serif" ? "Times New Roman" : selected.family === "mono" ? "Courier New" : "Helvetica");
+      if (![...active.textFont.options].some(function (option) { return option.value === selectedFamily; })) {
+        var detectedOption = document.createElement("option");
+        detectedOption.value = selectedFamily;
+        detectedOption.textContent = selectedFamily;
+        active.textFont.append(detectedOption);
+      }
+      active.textFont.value = selectedFamily;
+      var selectedBasis = selected.type === "textedit"
+        ? (active.rotation % 180 ? active.overlay.clientWidth : active.overlay.clientHeight)
+        : Math.min(active.overlay.clientWidth, active.overlay.clientHeight);
+      active.size.value = String(Math.max(6, Math.round((selected.size || 0.04) * Math.max(1, selectedBasis))));
       active.color.value = selected.color || "#111111";
       active.textStyle.bold = !!selected.bold;
       active.textStyle.italic = !!selected.italic;
@@ -309,6 +330,7 @@
     active.size.hidden = !textVisible;
     active.textFont.hidden = !textVisible;
     active.textFormatGroup.hidden = !textVisible;
+    active.underlineButton.hidden = !!(selectedText && selected.type === "textedit");
     active.removeButton.hidden = !deleteVisible;
     active.props.hidden = !(colorVisible || strokeVisible || textVisible || deleteVisible);
     updateFormatButtonState();
@@ -843,6 +865,22 @@
       ? active.stage.clientWidth
       : active.stage.clientHeight;
     var fontPx = Math.max(8, (source.size || 0.02) * canonicalHeight);
+    var currentFamily = source.fontFamily ||
+      (source.family === "serif" ? "Times New Roman" : source.family === "mono" ? "Courier New" : "Helvetica");
+    if (![...active.textFont.options].some(function (option) { return option.value === currentFamily; })) {
+      var currentOption = document.createElement("option");
+      currentOption.value = currentFamily;
+      currentOption.textContent = currentFamily;
+      active.textFont.append(currentOption);
+    }
+    active.textFont.value = currentFamily;
+    active.size.value = String(Math.max(6, Math.round(fontPx)));
+    active.color.value = colors.color;
+    active.textStyle.bold = !!source.bold;
+    active.textStyle.italic = !!source.italic;
+    active.textStyle.underline = false;
+    updateFormatButtonState();
+
     editor.style.font =
       (source.italic ? "italic " : "") +
       (source.bold ? "700 " : "400 ") +
@@ -1266,16 +1304,15 @@
     stroke.value = "4";
     stroke.title = "Stroke width";
 
-    var size = document.createElement("select");
+    var size = document.createElement("input");
+    size.type = "number";
     size.className = "pdf-editor-btn pdf-editor-size-select";
-    size.title = "Text size";
-    [14,18,24,32,44,60].forEach(function (value) {
-      var option = document.createElement("option");
-      option.value = String(value);
-      option.textContent = value + "px";
-      if (value === 24) option.selected = true;
-      size.append(option);
-    });
+    size.title = "Font size";
+    size.setAttribute("aria-label", "Font size");
+    size.min = "6";
+    size.max = "200";
+    size.step = "1";
+    size.value = "24";
 
     var textFont = document.createElement("select");
     textFont.className = "pdf-editor-btn pdf-editor-font-select";
@@ -1285,7 +1322,9 @@
       ["Helvetica", "Helvetica"],
       ["Times New Roman", "Times New Roman"],
       ["Georgia", "Georgia"],
+      ["Garamond", "Garamond"],
       ["Verdana", "Verdana"],
+      ["Trebuchet MS", "Trebuchet MS"],
       ["Courier New", "Courier New"]
     ].forEach(function (entry) {
       var option = document.createElement("option");

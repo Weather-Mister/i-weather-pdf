@@ -293,8 +293,8 @@
       options.mount.replaceChildren(backdrop);
     } else {
       document.body.append(backdrop);
-      document.body.classList.add("pdf-editor-open");
     }
+    document.body.classList.add("pdf-editor-open");
 
     overlay.addEventListener("pointerdown", pointerDown);
     overlay.addEventListener("pointermove", pointerMove);
@@ -389,7 +389,7 @@
       host().commitAnnotations(current.pageId, current.annotations, true, !!current.embedded);
     }
     current.backdrop.remove();
-    if (!current.embedded) document.body.classList.remove("pdf-editor-open");
+    document.body.classList.remove("pdf-editor-open");
     active = null;
   }
 

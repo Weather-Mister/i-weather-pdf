@@ -38,6 +38,8 @@ assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");
 assert(editor.includes('createToolButton("Edit text", "edittext")'), "existing-text editor tool missing");
 assert(editor.includes('contentEditable = "true"'), "direct in-page existing text editor missing");
+assert(editor.includes("beginInlineNewText"), "direct inline new-text editor missing");
+assert(!editor.includes('window.prompt("Text to add:")'), "new text must not use a prompt window");
 assert(editor.includes('dataset.zoomAction = "in"'), "zoom-in control missing");
 assert(editor.includes('dataset.zoomAction = "fit"'), "fit-page control missing");
 assert(editor.includes("wheelZoom"), "trackpad/mouse zoom handler missing");

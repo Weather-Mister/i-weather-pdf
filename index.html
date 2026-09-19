@@ -7,7 +7,7 @@
   <meta name="description" content="A fast, private, browser-based PDF workspace.">
   <title>iWeather PDF</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=12">
+  <link rel="stylesheet" href="./styles.css?v=13">
 </head>
 <body>
   <div class="app-shell">
@@ -19,27 +19,8 @@
         <span class="brand-text">iWeather <strong>PDF</strong></span>
       </a>
 
-      <nav class="primary-actions" aria-label="PDF actions">
-        <button class="tool-button" data-tool="split" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M3 16h5M16 8h5M16 16h5"/></svg>
-          <span>Split</span>
-        </button>
-        <button class="tool-button" data-tool="combine" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="8" height="14" rx="1.5"/><rect x="12.5" y="5" width="8" height="14" rx="1.5"/><path d="M9 12h6"/></svg>
-          <span>Combine</span>
-        </button>
-        <button class="tool-button" data-tool="reorder" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h12M8 12h12M8 17h12"/><path d="M3.5 7h.01M3.5 12h.01M3.5 17h.01"/></svg>
-          <span>Reorder</span>
-        </button>
-        <button class="tool-button" data-tool="edit" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.4-1 10-10a2.15 2.15 0 0 0-3.05-3.05l-10 10z"/><path d="m13.9 7.4 3.05 3.05"/></svg>
-          <span>Edit</span>
-        </button>
-      </nav>
-
       <div class="topbar-right">
-        <button class="pptx-button" id="pptxViewerButton" type="button">
+        <button class="pptx-button" id="pptxViewerButton" type="button" title="Open PPTX viewer" aria-label="Open PPTX viewer">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M15 4v5h4"/><path d="M9 9h3a2 2 0 0 1 0 4H9zM9 9v7"/></svg>
           <span>PPTX</span>
         </button>
@@ -51,9 +32,9 @@
             <svg viewBox="0 0 24 24"><path d="m15 8 4.5 4-4.5 4"/><path d="M19 12h-8.5a5.5 5.5 0 0 0 0 11"/></svg>
           </button>
         </div>
-        <button class="add-button" id="addButton">
+        <button class="add-button" id="addButton" title="Add PDFs">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          <span>Add PDFs</span>
+          <span>Add</span>
         </button>
         <input id="fileInput" type="file" accept="application/pdf,.pdf" multiple hidden>
       </div>
@@ -81,25 +62,6 @@
           <button class="choose-button" id="chooseButton">Choose PDFs</button>
           <div class="drop-hint">or drag files anywhere into this window</div>
         </div>
-
-        <div class="feature-row" aria-label="Workspace capabilities">
-          <div class="feature">
-            <span class="feature-icon"><svg viewBox="0 0 24 24"><path d="M8 3v18M16 3v18"/></svg></span>
-            <div><strong>Split</strong><span>Keep only the pages you want.</span></div>
-          </div>
-          <div class="feature">
-            <span class="feature-icon"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="8" height="14" rx="1.5"/><rect x="12.5" y="5" width="8" height="14" rx="1.5"/></svg></span>
-            <div><strong>Combine</strong><span>Mix pages from multiple PDFs.</span></div>
-          </div>
-          <div class="feature">
-            <span class="feature-icon"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg></span>
-            <div><strong>Reorder</strong><span>Drag pages into any order.</span></div>
-          </div>
-          <div class="feature">
-            <span class="feature-icon"><svg viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16z"/></svg></span>
-            <div><strong>Edit</strong><span>Annotate and change page content.</span></div>
-          </div>
-        </div>
       </section>
 
       <section class="loaded-state" id="loadedState" hidden>
@@ -108,9 +70,9 @@
             <span>Pages</span>
             <span class="page-count" id="pageCount">0</span>
           </div>
-          <div class="sidebar-reorder-hint">
+          <div class="sidebar-reorder-hint" title="Drag to reorder. Ctrl/Cmd-click or Shift-click to select multiple pages.">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/></svg>
-            <span>Drag pages to reorder</span>
+            <span>Drag · Ctrl/⌘ select</span>
           </div>
           <div class="sidebar-note"></div>
         </aside>
@@ -122,14 +84,29 @@
               <span id="workspaceMeta">PDFs loaded locally</span>
             </div>
             <div class="canvas-actions">
-              <button class="delete-page-button" id="deletePageButton" type="button" disabled title="Delete current page">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m8 10 .5 8h7l.5-8"/><path d="M10.5 11.5v4M13.5 11.5v4"/></svg>
-                <span>Delete page</span>
+              <button class="canvas-icon-button" id="rotateLeftButton" type="button" disabled title="Rotate selected left" aria-label="Rotate selected left">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7H4V3"/><path d="M4.7 7.2A8 8 0 1 1 5 17"/></svg>
               </button>
-              <button class="secondary-button" id="selectAllButton" disabled>Select all</button>
+              <button class="canvas-icon-button" id="rotateRightButton" type="button" disabled title="Rotate selected right" aria-label="Rotate selected right">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 7h4V3"/><path d="M19.3 7.2A8 8 0 1 0 19 17"/></svg>
+              </button>
+              <button class="canvas-icon-button" id="duplicateButton" type="button" disabled title="Duplicate selected" aria-label="Duplicate selected">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+              </button>
+              <button class="canvas-icon-button" id="selectAllButton" type="button" disabled title="Select all pages" aria-label="Select all pages">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H6a2 2 0 0 0-2 2v2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg>
+              </button>
+              <button class="delete-page-button" id="deletePageButton" type="button" disabled title="Delete selected pages" aria-label="Delete selected pages">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m8 10 .5 8h7l.5-8"/><path d="M10.5 11.5v4M13.5 11.5v4"/></svg>
+                <span>Delete</span>
+              </button>
+              <button class="extract-button" id="extractButton" type="button" disabled title="Export selected pages as a new PDF">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M15 4v5h4"/><path d="M9 14h6M12 11v6"/></svg>
+                <span>Extract</span>
+              </button>
               <button class="export-button" id="exportButton" disabled>
                 <svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 20h14"/></svg>
-                Export PDF
+                <span>Export</span>
               </button>
             </div>
           </div>
@@ -145,15 +122,7 @@
             </div>
           </div>
         </section>
-
-        <aside class="inspector" id="inspector">
-          <div class="inspector-heading">Inspector</div>
-          <div class="inspector-empty">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
-            <strong>No page selected</strong>
-            <span>Select a page to see editing controls.</span>
-          </div>
-        </aside>
+        <aside class="inspector" id="inspector" hidden></aside>
       </section>
     </main>
 
@@ -172,6 +141,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=12" defer></script>
+  <script src="./app.js?v=13" defer></script>
 </body>
 </html>

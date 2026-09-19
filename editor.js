@@ -14,7 +14,15 @@
   }
 
   function copy(value) {
-    return JSON.parse(JSON.stringify(value));
+    if (Array.isArray(value)) return value.map(copy);
+    if (value && typeof value === "object") {
+      var result = {};
+      Object.keys(value).forEach(function (key) {
+        result[key] = copy(value[key]);
+      });
+      return result;
+    }
+    return value;
   }
 
   function normRotation(value) {
@@ -67,19 +75,25 @@
       image.src = src;
     });
     imageCache.set(src, promise);
+    if (imageCache.size > 24) {
+      var oldest = imageCache.keys().next().value;
+      if (oldest && oldest !== src) imageCache.delete(oldest);
+    }
     return promise;
   }
 
   function pushLocalHistory() {
     if (!active) return;
+    active.dirty = true;
     active.undo.push(copy(active.annotations));
-    if (active.undo.length > 50) active.undo.shift();
+    if (active.undo.length > 30) active.undo.shift();
     active.redo = [];
     updateUndoRedo();
   }
 
   function localUndo() {
     if (!active || !active.undo.length) return;
+    active.dirty = true;
     active.redo.push(copy(active.annotations));
     active.annotations = active.undo.pop();
     active.selectedId = null;
@@ -89,6 +103,7 @@
 
   function localRedo() {
     if (!active || !active.redo.length) return;
+    active.dirty = true;
     active.undo.push(copy(active.annotations));
     active.annotations = active.redo.pop();
     active.selectedId = null;
@@ -257,7 +272,6 @@
       overlay: overlay,
       status: status,
       annotations: h.getAnnotations(pageId),
-      original: h.getAnnotations(pageId),
       undo: [],
       redo: [],
       selectedId: null,
@@ -271,6 +285,7 @@
       imageInput: imageInput,
       rotation: normRotation(page.rotation || 0),
       pointer: null,
+      dirty: false,
       embedded: embedded,
       mount: options.mount || null
     };
@@ -309,7 +324,8 @@
         h.showToast("Use a PNG, JPEG, or WebP image under 12 MB.");
         return;
       }
-      var src = await readDataUrl(file);
+      var src = await prepareImageData(file);
+      if (!src) return;
       var image = await getImage(src);
       if (!image) return;
       pushLocalHistory();
@@ -358,12 +374,7 @@
   }
 
   function hasChanges(current) {
-    if (!current) return false;
-    try {
-      return JSON.stringify(current.annotations || []) !== JSON.stringify(current.original || []);
-    } catch (_) {
-      return true;
-    }
+    return !!(current && current.dirty);
   }
 
   function saveCurrent() {
@@ -373,7 +384,7 @@
       return false;
     }
     host().commitAnnotations(active.pageId, active.annotations, true, !!active.embedded);
-    active.original = copy(active.annotations);
+    active.dirty = false;
     active.undo = [];
     active.redo = [];
     updateUndoRedo();
@@ -395,7 +406,7 @@
 
   function resizeOverlay(cssWidth, cssHeight) {
     if (!active) return;
-    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     active.overlay.width = Math.max(1, Math.round(cssWidth * dpr));
     active.overlay.height = Math.max(1, Math.round(cssHeight * dpr));
     active.overlay.style.width = cssWidth + "px";
@@ -409,6 +420,28 @@
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+  }
+
+  async function prepareImageData(file) {
+    var original = await readDataUrl(file);
+    var image = await getImage(original);
+    if (!image) return null;
+
+    var maxSide = 1600;
+    var sourceWidth = image.naturalWidth || image.width || 1;
+    var sourceHeight = image.naturalHeight || image.height || 1;
+    var scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+
+    if (scale >= 1 && file.size <= 2.5 * 1024 * 1024) return original;
+
+    var canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    var ctx = canvas.getContext("2d", { alpha: true });
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    var mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+    return canvas.toDataURL(mime, mime === "image/png" ? undefined : 0.88);
   }
 
   function pointFromEvent(event) {
@@ -515,7 +548,10 @@
 
     if (pointer.mode === "pen") {
       var last = item.points[item.points.length - 1];
-      if (!last || Math.abs(last.x - canonical.x) + Math.abs(last.y - canonical.y) > 0.0015) {
+      if (
+        (!last || Math.abs(last.x - canonical.x) + Math.abs(last.y - canonical.y) > 0.0015) &&
+        item.points.length < 8000
+      ) {
         item.points.push(canonical);
       }
     } else if (pointer.mode === "shape") {

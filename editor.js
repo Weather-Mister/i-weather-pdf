@@ -384,8 +384,12 @@
       fontFamilyCss(source);
 
     active.textHitLayer.appendChild(input);
-    input.focus();
-    input.select();
+
+    requestAnimationFrame(function () {
+      if (!input.isConnected) return;
+      input.focus({ preventScroll: true });
+      input.select();
+    });
 
     var closed = false;
     function finish(commit) {
@@ -459,6 +463,7 @@
       hit.title = run.text;
       hit.setAttribute("aria-label", "Edit text: " + run.text.slice(0, 120));
       hit.addEventListener("pointerdown", function (event) {
+        event.preventDefault();
         event.stopPropagation();
       });
       hit.addEventListener("click", function (event) {

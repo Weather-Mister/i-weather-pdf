@@ -3,6 +3,7 @@ import fs from "node:fs";
 const read = (path) => fs.readFileSync(path, "utf8");
 const app = read("app.js");
 const editor = read("editor.js");
+const converter = read("converter.js");
 const html = read("index.html");
 const css = read("styles.css");
 
@@ -13,6 +14,7 @@ const assert = (condition, message) => {
 
 try { new Function(app); } catch (error) { failures.push("app.js syntax: " + error.message); }
 try { new Function(editor); } catch (error) { failures.push("editor.js syntax: " + error.message); }
+try { new Function(converter); } catch (error) { failures.push("converter.js syntax: " + error.message); }
 
 assert(!app.includes("existingKeys"), "duplicate-file guard returned");
 assert(!app.includes("Those PDFs are already"), "duplicate-file rejection message returned");
@@ -34,6 +36,14 @@ assert(app.includes("4200000"), "full-page canvas pixel budget missing");
 assert(editor.includes("maxSide = 1600"), "inserted-image resize missing");
 assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");
+assert(app.includes('loadScript("./converter.js?v=1"'), "converter is not lazy-loaded");
+assert(app.includes('link.href = "./converter.css?v=1"'), "converter CSS is not lazy-loaded");
+assert(html.includes('id="converterButton"'), "converter entry button missing");
+for (const mode of ["images-pdf","pdf-png","pdf-jpg","pdf-text"]) {
+  assert(converter.includes(mode), "converter mode missing: " + mode);
+}
+assert(converter.includes("MAX_IMAGE_PAGES = 300"), "PDF-to-image page safety limit missing");
+assert(converter.includes("makeZip(entries)"), "dependency-free ZIP writer missing");
 
 const singleSelectorForEach = /(^|[^$])\$\("[^"]+"\)\.forEach/g;
 assert(!singleSelectorForEach.test(app), "single-element selector used with .forEach");
@@ -102,9 +112,9 @@ if (failures.length) {
 }
 
 console.log("Audit passed");
-console.log(" - app.js and editor.js parse");
+console.log(" - app.js, editor.js, and converter.js parse");
 console.log(" - duplicate PDFs are allowed");
-console.log(" - PDF export library remains lazy");
+console.log(" - PDF export and converter modules remain lazy");
 console.log(" - DOM selector targets are present");
 console.log(" - sidebar/runtime memory guards are present");
 console.log(" - 5,000-page data-model stress simulation passed");

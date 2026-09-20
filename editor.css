@@ -297,3 +297,61 @@
 .pdf-editor-stage-wrap.is-initializing .pdf-editor-stage{
   visibility:hidden;
 }
+
+
+/* Product consistency pass v17 */
+.pdf-editor-topbar,
+.pdf-editor-tools{
+  border-bottom-color:#c6c4b9;
+}
+.pdf-editor-btn.primary{
+  background:#f4c430;
+  border-color:#c99b00;
+  color:#211a00;
+}
+.pdf-editor-btn.primary:hover{
+  background:#e8b915;
+  color:#171200;
+}
+.pdf-editor-tool.is-active{
+  background:#fff1a6;
+  border-color:transparent;
+  color:#6f5300;
+  box-shadow:inset 0 0 0 1px #d3ad20;
+}
+.page-edit-badge{
+  background:#fff1a6;
+  color:#6f5300;
+}
+.inspector-action.primary{
+  background:#f4c430;
+  color:#211a00;
+  border-color:#c99b00;
+}
+.inspector-action.primary:hover{
+  background:#e8b915;
+}
+.pdf-editor-direct-text{
+  caret-color:#8a6500;
+  text-decoration-color:rgba(154,115,0,.45);
+}
+.pdf-editor-direct-text.is-new{
+  text-decoration-color:rgba(154,115,0,.60);
+  background:rgba(255,241,166,.34)!important;
+}
+.pdf-editor-direct-text.is-new:focus{
+  box-shadow:0 0 0 1px rgba(154,115,0,.35);
+  text-decoration-color:#9a7300;
+}
+.pdf-editor-direct-text:focus{
+  text-decoration-color:#9a7300;
+}
+.pdf-editor-text-hit:hover,
+.pdf-editor-text-hit:focus-visible{
+  background:rgba(244,196,48,.12);
+  box-shadow:inset 0 0 0 1px rgba(154,115,0,.68);
+}
+.pdf-editor-text-hit.is-edited:hover,
+.pdf-editor-text-hit.is-edited:focus-visible{
+  background:rgba(244,196,48,.08);
+}

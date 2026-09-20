@@ -66,7 +66,7 @@ assert(app.includes("function getPageTextRuns"), "existing PDF text extraction m
 assert(app.includes("function stripOriginalText"), "content-stream text removal missing");
 assert(app.includes("applyExistingTextEdits"), "vector replacement export missing");
 assert(app.includes('loadScript("./pptx-viewer.js?v=1"'), "PPTX viewer is not lazy-loaded");
-assert(app.includes('link.href = "./pptx-viewer.css?v=1"'), "PPTX viewer CSS is not lazy-loaded");
+assert(app.includes('link.href = "./pptx-viewer.css?v=2"'), "PPTX viewer CSS is not lazy-loaded");
 assert(html.includes('id="pptxViewerButton"'), "PPTX viewer entry button missing");
 assert(pptxViewer.includes("pptx-preview@1.0.7"), "PPTX viewer engine is not pinned");
 assert(pptxViewer.includes("mod.init"), "PPTX renderer initialization missing");

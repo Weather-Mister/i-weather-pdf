@@ -583,3 +583,14 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(244,196,48,.32);outl
   color:#555247;
 }
 .status-dot{background:#c99b00}
+
+
+/* Product consistency pass v17 */
+.delete-page-button:hover:not(:disabled){
+  background:#f8ecea;
+  color:#7c332d;
+}
+.status-dot{
+  background:#55a56a;
+  box-shadow:0 0 0 3px rgba(85,165,106,.10);
+}

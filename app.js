@@ -183,7 +183,7 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=16";
+      link.href = "./editor.css?v=17";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
@@ -206,7 +206,7 @@
     if (!document.querySelector('link[data-pptx-viewer-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./pptx-viewer.css?v=1";
+      link.href = "./pptx-viewer.css?v=2";
       link.dataset.pptxViewerCss = "true";
       document.head.appendChild(link);
     }

@@ -184,7 +184,7 @@
       tool === "select" ? "Tap an edit to select and drag it" :
       tool === "edittext" ? "Loading editable text…" :
       tool === "editimage" ? "Finding images…" :
-      tool === "text" ? "Tap anywhere to add text" :
+      tool === "text" ? "Tap empty space to add text · tap added text to edit" :
       tool === "pen" ? "Draw directly on the page" :
       tool === "highlight" ? "Drag across an area to highlight" :
       tool === "rect" ? "Drag to draw a rectangle" :
@@ -235,6 +235,31 @@
     return active.annotations.find(function (item) { return item.id === active.selectedId; }) || null;
   }
 
+  function textReferenceMinDim() {
+    if (!active) return 1;
+    if (active.fitWidth > 0 && active.fitHeight > 0) {
+      return Math.max(1, Math.min(active.fitWidth, active.fitHeight));
+    }
+    var current = Math.max(
+      1,
+      Math.min(active.overlay.clientWidth || 1, active.overlay.clientHeight || 1)
+    );
+    return Math.max(1, current / Math.max(0.01, active.zoom || 1));
+  }
+
+  function textDisplayScale() {
+    if (!active) return 1;
+    var current = Math.max(
+      1,
+      Math.min(active.overlay.clientWidth || 1, active.overlay.clientHeight || 1)
+    );
+    return current / textReferenceMinDim();
+  }
+
+  function textUiPxToDisplayPx(px) {
+    return Math.max(1, Number(px) || 1) * textDisplayScale();
+  }
+
   function textFontCss(item) {
     var family = String((item && (item.fontFamily || item.font)) || "Arial").replace(/["';]/g, "").trim();
     if (!family) family = "Arial";
@@ -245,13 +270,17 @@
     if (!active || !active.directTextEditor || !active.directTextEditor.isConnected) return;
     var editor = active.directTextEditor;
     var px = Number(active.size.value) || 24;
+    var displayPx =
+      editor.classList.contains("is-new") || editor.classList.contains("is-added-edit")
+        ? textUiPxToDisplayPx(px)
+        : px;
     editor.style.color = active.color.value;
     editor.style.fontFamily = textFontCss({ fontFamily: active.textFont.value });
-    editor.style.fontSize = px + "px";
+    editor.style.fontSize = displayPx + "px";
     editor.style.fontWeight = active.textStyle.bold ? "700" : "400";
     editor.style.fontStyle = active.textStyle.italic ? "italic" : "normal";
     editor.style.textDecorationLine = active.textStyle.underline ? "underline" : "none";
-    editor.style.minHeight = Math.max(16, px * 1.1) + "px";
+    editor.style.minHeight = Math.max(16, displayPx * 1.2) + "px";
   }
 
   function updateFormatButtonState() {
@@ -283,7 +312,7 @@
       } else if (property === "sizePx") {
         var basis = item.type === "textedit"
           ? (active.rotation % 180 ? active.overlay.clientWidth : active.overlay.clientHeight)
-          : Math.min(active.overlay.clientWidth, active.overlay.clientHeight);
+          : textReferenceMinDim();
         item.size = Number(value) / Math.max(1, basis);
         if (item.type === "textedit") item.manualSize = true;
       } else if (property === "color") item.color = value;
@@ -318,7 +347,7 @@
       active.textFont.value = selectedFamily;
       var selectedBasis = selected.type === "textedit"
         ? (active.rotation % 180 ? active.overlay.clientWidth : active.overlay.clientHeight)
-        : Math.min(active.overlay.clientWidth, active.overlay.clientHeight);
+        : textReferenceMinDim();
       active.size.value = String(Math.max(6, Math.round((selected.size || 0.04) * Math.max(1, selectedBasis))));
       active.color.value = selected.color || "#111111";
       active.textStyle.bold = !!selected.bold;
@@ -981,7 +1010,9 @@
 
     active.textHitLayer.appendChild(editor);
     active.directTextEditor = editor;
+    active.editingAddedTextId = item.id;
     active.status.textContent = "Edit text · Enter for new line · Ctrl/Cmd+Enter to finish · Esc to cancel";
+    draw();
 
     requestAnimationFrame(function () {
       if (!editor.isConnected) return;
@@ -1002,6 +1033,7 @@
       var value = readMultilineEditorText(editor);
       editor.remove();
       if (active && active.directTextEditor === editor) active.directTextEditor = null;
+      if (active && active.editingAddedTextId === item.id) active.editingAddedTextId = null;
       if (!active) return;
 
       if (!commit) {
@@ -1159,12 +1191,13 @@
       40,
       (1 - displayPoint.x) * active.stage.clientWidth
     ) + "px";
-    editor.style.minHeight = Math.max(16, Number(active.size.value) * 1.1) + "px";
+    var newTextDisplayPx = textUiPxToDisplayPx(Number(active.size.value) || 24);
+    editor.style.minHeight = Math.max(16, newTextDisplayPx * 1.2) + "px";
     editor.style.color = active.color.value;
     editor.style.background = "transparent";
     editor.style.lineHeight = "1.2";
     editor.style.fontFamily = textFontCss({ fontFamily: active.textFont.value });
-    editor.style.fontSize = Number(active.size.value) + "px";
+    editor.style.fontSize = newTextDisplayPx + "px";
     editor.style.fontWeight = active.textStyle.bold ? "700" : "400";
     editor.style.fontStyle = active.textStyle.italic ? "italic" : "normal";
     editor.style.textDecorationLine = active.textStyle.underline ? "underline" : "none";
@@ -1197,7 +1230,7 @@
           y: canonical.y,
           text: value.slice(0, 2000),
           color: active.color.value,
-          size: Number(active.size.value) / Math.max(1, minDim),
+          size: Number(active.size.value) / textReferenceMinDim(),
           fontFamily: active.textFont.value,
           bold: !!active.textStyle.bold,
           italic: !!active.textStyle.italic,
@@ -1243,7 +1276,7 @@
     active.textHitLayer.replaceChildren();
     active.textHitLayer.classList.toggle(
       "is-active",
-      active.tool === "edittext" || active.tool === "editimage"
+      active.tool === "edittext" || active.tool === "editimage" || active.tool === "text"
     );
 
     if (active.tool === "editimage") {
@@ -1275,7 +1308,7 @@
       return;
     }
 
-    if (active.tool !== "edittext") return;
+    if (active.tool !== "edittext" && active.tool !== "text") return;
     var edited = editedTextKeys();
 
     active.annotations.forEach(function (item) {
@@ -1307,6 +1340,7 @@
       active.textHitLayer.appendChild(hit);
     });
 
+    if (active.tool === "text") return;
     if (!Array.isArray(active.textRuns)) return;
     active.textRuns.forEach(function (run) {
       if (edited.has(run.key)) return;
@@ -1627,6 +1661,7 @@
       imageRuns: null,
       imageRunsPromise: null,
       directTextEditor: null,
+      editingAddedTextId: null,
       forceTextEditCommit: false,
       rotation: normRotation(page.rotation || 0),
       pointer: null,
@@ -1910,7 +1945,12 @@
     }
 
     if (active.tool === "text") {
-      beginInlineNewText(displayPoint, canonical, minDim);
+      var addedText = hitTest(displayPoint);
+      if (addedText && addedText.type === "text") {
+        beginInlineAnnotationTextEdit(addedText);
+      } else {
+        beginInlineNewText(displayPoint, canonical, minDim);
+      }
       return;
     }
 
@@ -2106,6 +2146,16 @@
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
+
+      if (
+        allowAsyncImages &&
+        active &&
+        active.editingAddedTextId &&
+        item.id === active.editingAddedTextId
+      ) {
+        ctx.restore();
+        return;
+      }
 
       if (item.type === "pen") {
         if (!item.points || item.points.length < 1) {

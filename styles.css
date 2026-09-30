@@ -594,3 +594,36 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(244,196,48,.32);outl
   background:#55a56a;
   box-shadow:0 0 0 3px rgba(85,165,106,.10);
 }
+
+/* Navigation and keyboard access */
+.page-navigation{display:flex;align-items:center;justify-content:center;gap:5px;padding:4px 8px 10px;font-size:11px;color:#555247;flex:none}
+.page-navigation button{width:26px;height:30px;border:1px solid #c8c5b8;border-radius:6px;background:#fff;font-size:21px;cursor:pointer;color:#29271f}
+.page-navigation button:disabled{opacity:.35;cursor:default}
+.page-navigation input{min-width:0;width:42px;height:30px;border:1px solid #c8c5b8;border-radius:6px;text-align:center;background:#fff;color:#171714;font:inherit;appearance:textfield}
+.page-navigation input::-webkit-inner-spin-button{appearance:none}
+#selectionSummary{font-weight:700;color:#6f5300}
+#startBlankButton{display:block;margin:12px auto 0}
+.shortcuts-dialog{width:min(560px,calc(100vw - 32px));max-height:85dvh;overflow:auto;border:1px solid #c8c5b8;border-radius:16px;padding:24px;color:#171714;background:#fffefa;box-shadow:0 16px 64px #0003}
+.shortcuts-dialog::backdrop{background:#17171466}
+.shortcuts-dialog h2{font-size:20px;margin:0 0 20px}
+.shortcuts-dialog dl{display:grid;grid-template-columns:1fr 1fr;gap:13px 18px;font-size:13px}
+.shortcuts-dialog dd{margin:0;font-weight:600}
+.shortcuts-dialog p{font-size:12px;line-height:1.6;color:#5f5c50;margin:20px 0}
+button:focus-visible,input:focus-visible,select:focus-visible,.sidebar-page-row:focus-visible{outline:2px solid #806000;outline-offset:2px}
+@media(max-width:600px){.page-navigation{flex-wrap:wrap;gap:3px;padding:2px 3px 8px}.page-navigation input{width:32px}.page-navigation span{font-size:9px}.page-navigation button{width:22px}.shortcuts-dialog dl{font-size:11px;gap:12px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* The document strip is intentionally hidden: only three layout rows remain. */
+.app-shell{grid-template-rows:var(--topbar) minmax(0,1fr) var(--statusbar)}
+.workspace{grid-row:2}
+.statusbar{grid-row:3}
+.history-buttons{display:flex}
+@media(max-width:640px){
+  .topbar-right{gap:3px}
+  .page-navigation{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+  .page-navigation input{grid-row:1;grid-column:1;width:100%}
+  .page-navigation span{grid-row:1;grid-column:2}
+  .page-navigation button{grid-row:2;width:100%;height:28px}
+  #previousPageButton{grid-column:1}
+  #nextPageButton{grid-column:2}
+}

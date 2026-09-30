@@ -23,6 +23,8 @@
     sidebarObserver: null,
     history: { undo: [], redo: [] },
     pageClipboard: [],
+    revision: 0,
+    exportedRevision: 0,
     ignoreClick: false
   };
 
@@ -35,7 +37,6 @@
     addButton: $("#addButton"),
     pptxViewerButton: $("#pptxViewerButton"),
     stripAddButton: $("#stripAddButton"),
-    addMoreButton: $("#addMoreButton"),
     documentStrip: $("#documentStrip"),
     documentList: $("#documentList"),
     emptyState: $("#emptyState"),
@@ -58,6 +59,11 @@
     exportButton: $("#exportButton"),
     undoButton: $("#undoButton"),
     redoButton: $("#redoButton"),
+    pageNumber: $("#pageNumber"),
+    pageTotal: $("#pageTotal"),
+    previousPageButton: $("#previousPageButton"),
+    nextPageButton: $("#nextPageButton"),
+    selectionSummary: $("#selectionSummary"),
     toast: $("#toast")
   };
 
@@ -67,6 +73,8 @@
   let pointerDrag = null;
   const textRunCache = new Map();
   const imageRunCache = new Map();
+  const sourceDocuments = new Set();
+  let exportingDocuments = [];
 
   function uid(prefix) {
     return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
@@ -137,7 +145,10 @@
       script.crossOrigin = "anonymous";
       script.dataset.src = src;
       script.onload = () => resolve(window[globalName]);
-      script.onerror = () => reject(new Error("Could not load " + src));
+      script.onerror = () => {
+        script.remove();
+        reject(new Error("Could not load " + src));
+      };
       document.head.appendChild(script);
     });
   }
@@ -183,12 +194,12 @@
     if (!document.querySelector('link[data-pdf-editor-css]')) {
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = "./editor.css?v=17";
+      link.href = "./editor.css?v=18";
       link.dataset.pdfEditorCss = "true";
       document.head.appendChild(link);
     }
 
-    state.editorPromise = loadScript("./editor.js?v=16", "iWeatherPDFEditor")
+    state.editorPromise = loadScript("./editor.js?v=17", "iWeatherPDFEditor")
       .then(() => window.iWeatherPDFEditor)
       .catch((error) => {
         state.editorPromise = null;
@@ -235,25 +246,26 @@
 
   function snapshotWorkspace() {
     return {
+      documents: state.documents.slice(),
+      activePageId: state.activePageId,
+      selected: [...state.selected],
       pages: clonePages(),
       annotations: deepClone(state.annotations)
     };
   }
 
   function restoreWorkspace(snapshot) {
+    state.documents = snapshot.documents || state.documents;
+    state.activePageId = snapshot.activePageId;
+    state.selected = new Set(snapshot.selected || []);
     state.pages = snapshot.pages || [];
     state.annotations = snapshot.annotations || {};
   }
 
   function pushHistory() {
+    state.revision++;
     state.history.undo.push(snapshotWorkspace());
     if (state.history.undo.length > 30) state.history.undo.shift();
-    state.history.redo = [];
-    updateHistoryButtons();
-  }
-
-  function clearHistory() {
-    state.history.undo = [];
     state.history.redo = [];
     updateHistoryButtons();
   }
@@ -263,9 +275,9 @@
     if (!state.history.undo.length) return false;
     state.history.redo.push(snapshotWorkspace());
     restoreWorkspace(state.history.undo.pop());
-    state.selected.clear();
-    state.lastSelectedId = null;
-    renderWorkspace();
+    state.revision++;
+    state.lastSelectedId = state.activePageId;
+    render();
     updateHistoryButtons();
     showToast("Undone");
     return true;
@@ -276,17 +288,17 @@
     if (!state.history.redo.length) return false;
     state.history.undo.push(snapshotWorkspace());
     restoreWorkspace(state.history.redo.pop());
-    state.selected.clear();
-    state.lastSelectedId = null;
-    renderWorkspace();
+    state.revision++;
+    state.lastSelectedId = state.activePageId;
+    render();
     updateHistoryButtons();
     showToast("Redone");
     return true;
   }
 
   function updateHistoryButtons() {
-    els.undoButton.disabled = !state.history.undo.length;
-    els.redoButton.disabled = !state.history.redo.length;
+    els.undoButton.disabled = state.loadingFiles || !state.history.undo.length;
+    els.redoButton.disabled = state.loadingFiles || !state.history.redo.length;
   }
 
   function setExportLabel(label) {
@@ -301,10 +313,12 @@
   }
 
   function updateToolbarState() {
+    els.addButton.disabled = state.loadingFiles;
     const hasPages = state.pages.length > 0;
     const selectedCount = state.selected.size;
     const hasSelection = selectedCount > 0;
     const allSelected = hasPages && selectedCount === state.pages.length;
+    updateNavigation();
 
     if (els.newPageButton) els.newPageButton.disabled = state.exporting;
     if (els.rotateLeftButton) els.rotateLeftButton.disabled = !hasSelection;
@@ -319,7 +333,7 @@
     els.deletePageButton.disabled = !hasSelection;
     if (els.extractButton) els.extractButton.disabled = !hasSelection || state.exporting;
 
-    setExportLabel("Export");
+    setExportLabel(state.exporting ? "Exporting…" : "Export PDF");
     els.exportButton.disabled = !hasPages || state.exporting;
 
     updateHistoryButtons();
@@ -418,6 +432,7 @@
       });
     }
 
+    sourceDocuments.add(doc);
     state.documents.push(doc);
     state.pages.push(...pages);
     return doc;
@@ -437,7 +452,11 @@
     }
 
     state.loadingFiles = true;
-    clearHistory();
+    els.loadedState.inert = true;
+    els.loadedState.setAttribute("aria-busy", "true");
+    saveCurrentEditor();
+    updateToolbarState();
+    const beforeImport = snapshotWorkspace();
     setStatus("Preparing " + pdfs.length + " PDF" + (pdfs.length === 1 ? "" : "s") + "…");
 
     try {
@@ -456,7 +475,15 @@
       }
 
       if (added) {
-        if (!state.activePageId && state.pages.length) state.activePageId = state.pages[0].id;
+        state.history.undo.push(beforeImport);
+        if (state.history.undo.length > 30) state.history.undo.shift();
+        state.history.redo = [];
+        state.revision++;
+        if (!state.activePageId && state.pages.length) {
+          state.activePageId = state.pages[0].id;
+          state.selected = new Set([state.activePageId]);
+          state.lastSelectedId = state.activePageId;
+        }
         setStatus(state.pages.length + " pages ready");
         showToast(
           added +
@@ -480,6 +507,8 @@
       showToast("Could not load the PDF viewer. Check your connection.", 3200);
     } finally {
       state.loadingFiles = false;
+      els.loadedState.inert = false;
+      els.loadedState.removeAttribute("aria-busy");
       els.fileInput.value = "";
       render();
     }
@@ -493,6 +522,8 @@
       .filter((page) => page.docId === id)
       .map((page) => page.id);
 
+    saveCurrentEditor();
+    pushHistory();
     if (removedPageIds.includes(state.activePageId)) {
       if (window.iWeatherPDFEditor && typeof window.iWeatherPDFEditor.close === "function") {
         window.iWeatherPDFEditor.close(false);
@@ -515,11 +546,8 @@
       if (!page) state.selected.delete(selectedId);
     }
 
-    if (doc.pdfJs && typeof doc.pdfJs.destroy === "function") {
-      Promise.resolve(doc.pdfJs.destroy()).catch(() => {});
-    }
+    // Source documents remain available to undo and copied pages.
 
-    clearHistory();
     state.lastSelectedId = null;
     if (!state.pages.length) state.activeTool = null;
     render();
@@ -527,7 +555,21 @@
     showToast((doc.label || doc.name) + " removed");
   }
 
+  function releaseUnusedSources() {
+    const retained = new Set([...state.documents, ...exportingDocuments]);
+    for (const snapshot of [...state.history.undo, ...state.history.redo]) {
+      for (const doc of snapshot.documents || []) retained.add(doc);
+    }
+    for (const entry of state.pageClipboard) if (entry.document) retained.add(entry.document);
+    for (const doc of sourceDocuments) {
+      if (retained.has(doc)) continue;
+      sourceDocuments.delete(doc);
+      if (doc.pdfJs && typeof doc.pdfJs.destroy === "function") Promise.resolve(doc.pdfJs.destroy()).catch(() => {});
+    }
+  }
+
   function render() {
+    releaseUnusedSources();
     const hasDocs = state.documents.length > 0 || state.pages.length > 0;
     els.documentStrip.hidden = !hasDocs;
     els.emptyState.hidden = hasDocs;
@@ -559,6 +601,26 @@
     renderWorkspace();
   }
 
+  function updateNavigation() {
+    const index = state.pages.findIndex((page) => page.id === state.activePageId);
+    els.pageNumber.value = index < 0 ? "" : String(index + 1);
+    els.pageNumber.max = String(state.pages.length);
+    els.pageNumber.disabled = !state.pages.length;
+    els.pageTotal.textContent = "/ " + state.pages.length;
+    els.previousPageButton.disabled = index <= 0;
+    els.nextPageButton.disabled = index < 0 || index >= state.pages.length - 1;
+    els.selectionSummary.textContent = state.selected.size > 1 ? state.selected.size + " selected" : "";
+    if (index >= 0) els.workspaceTitle.textContent = "Page " + (index + 1) + " of " + state.pages.length;
+  }
+
+  function goToPage(number) {
+    if (!state.pages.length) return;
+    const index = Math.max(0, Math.min(state.pages.length - 1, Math.round(Number(number) || 1) - 1));
+    selectPage(state.pages[index].id);
+    const row = els.sidebarPages.querySelector('[data-page-id="' + state.activePageId + '"]');
+    if (row) row.scrollIntoView({ block: "nearest" });
+  }
+
   function renderWorkspace() {
     const count = state.documents.length;
     if (state.pages.length && !getPageById(state.activePageId)) {
@@ -574,7 +636,7 @@
         ? "Page " + (activeIndex + 1) + " of " + state.pages.length
         : state.pages.length + " pages";
     els.workspaceMeta.textContent =
-      count === 1
+      count === 0 ? "Blank document" : count === 1
         ? (state.documents[0].label || state.documents[0].name)
         : count + " PDFs · " + formatBytes(state.documents.reduce((sum, doc) => sum + doc.size, 0));
     els.pageCount.textContent = String(state.pages.length);
@@ -651,7 +713,12 @@
         const failed = document.createElement("div");
         failed.className = "workspace-empty";
         failed.innerHTML =
-          '<strong>Could not open this page</strong><span>Try selecting it again.</span>';
+          '<strong>Could not open this page</strong><span>Check your connection and try again.</span>';
+        const retry = document.createElement("button");
+        retry.className = "secondary-button";
+        retry.textContent = "Retry";
+        retry.addEventListener("click", renderPages);
+        failed.append(retry);
         els.pageGrid.append(failed);
         setStatus("Page editor failed");
       });
@@ -776,6 +843,7 @@
     }
 
     syncSelectionUI();
+    if (event.type) els.sidebarPages.querySelector('[data-page-id="' + id + '"]')?.focus({ preventScroll: true });
     renderInspector();
     updateToolbarState();
 
@@ -788,6 +856,9 @@
     $$(".sidebar-page-row").forEach((row) => {
       row.classList.toggle("is-selected", state.selected.has(row.dataset.pageId));
       row.classList.toggle("is-active", state.activePageId === row.dataset.pageId);
+      row.setAttribute("aria-pressed", String(state.selected.has(row.dataset.pageId)));
+      if (state.activePageId === row.dataset.pageId) row.setAttribute("aria-current", "page");
+      else row.removeAttribute("aria-current");
     });
     updateToolbarState();
   }
@@ -818,6 +889,9 @@
       row.classList.toggle("is-active", state.activePageId === page.id);
       row.setAttribute("role", "button");
       row.tabIndex = 0;
+      row.setAttribute("aria-label", "Page " + (index + 1));
+      row.setAttribute("aria-pressed", String(state.selected.has(page.id)));
+      if (state.activePageId === page.id) row.setAttribute("aria-current", "page");
 
       const thumb = document.createElement("div");
       thumb.className = "sidebar-thumb-wrap";
@@ -875,6 +949,7 @@
       row.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
+          event.stopPropagation();
           selectPage(page.id, event);
         }
       });
@@ -919,8 +994,9 @@
     const source = row.querySelector(".sidebar-page-info span");
     if (!source) return;
 
-    source.textContent =
-      (doc ? (doc.label || doc.name) : "PDF") +
+    source.textContent = page.blank
+      ? "Blank page" + (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "")
+      : (doc ? (doc.label || doc.name) : "PDF") +
       " · p" +
       (page.sourceIndex + 1) +
       (editCount(page.id) ? " · " + editCount(page.id) + " edits" : "");
@@ -1097,7 +1173,7 @@
     state.selected.clear();
     state.selected.add(page.id);
     state.lastSelectedId = page.id;
-    renderWorkspace();
+    render();
     showToast("Blank page added");
   }
 
@@ -1107,6 +1183,7 @@
     if (!pages.length) return false;
     state.pageClipboard = pages.map((page) => ({
       page: deepClone(page),
+      document: getDocumentById(page.docId),
       annotations: deepClone(state.annotations[page.id] || [])
     }));
     showToast(pages.length + " page" + (pages.length === 1 ? "" : "s") + " copied");
@@ -1130,6 +1207,7 @@
     const pastedIds = [];
 
     state.pageClipboard.forEach((entry) => {
+      if (entry.document && !getDocumentById(entry.document.id)) state.documents.push(entry.document);
       const copy = { ...deepClone(entry.page), id: uid("page") };
       state.pages.splice(insertAt++, 0, copy);
       if (entry.annotations && entry.annotations.length) {
@@ -1173,6 +1251,7 @@
     state.pages = nextPages;
     state.selected = newSelected;
     state.lastSelectedId = [...newSelected][0] || null;
+    state.activePageId = state.lastSelectedId || state.activePageId;
     renderWorkspace();
     showToast("Page" + (newSelected.size === 1 ? "" : "s") + " duplicated");
   }
@@ -1969,6 +2048,15 @@
   async function exportPages(pages, filename) {
     if (!pages || !pages.length || state.exporting) return;
 
+    saveCurrentEditor();
+    const exportRevision = state.revision;
+    const completeWorkspace = pages.length === state.pages.length && pages.every((page, index) => page.id === state.pages[index].id);
+    pages = deepClone(pages);
+    const exportAnnotations = deepClone(state.annotations);
+    const exportDocuments = state.documents.slice();
+    exportingDocuments = exportDocuments;
+    if (!filename) filename = exportDocuments.length === 1
+      ? sanitizeBaseName(exportDocuments[0].name) + "-edited.pdf" : "i-weather-pdf-combined.pdf";
     state.exporting = true;
     updateToolbarState();
     setStatus("Preparing export…");
@@ -1980,7 +2068,7 @@
       for (const model of pages) {
         if (model.blank) continue;
         if (sourceDocs.has(model.docId)) continue;
-        const doc = getDocumentById(model.docId);
+        const doc = exportDocuments.find((item) => item.id === model.docId);
         if (!doc) throw new Error("A source PDF is missing.");
         const bytes = await doc.file.arrayBuffer();
         const loaded = await window.PDFLib.PDFDocument.load(bytes, {
@@ -2019,13 +2107,13 @@
           output.addPage(copied);
         }
 
-        if (editCount(model.id)) {
+        if ((exportAnnotations[model.id] || []).length) {
           const editor = await ensureEditor();
           const crop =
             typeof copied.getCropBox === "function"
               ? copied.getCropBox()
               : { x: 0, y: 0, width: copied.getWidth(), height: copied.getHeight() };
-          const pageEdits = state.annotations[model.id] || [];
+          const pageEdits = exportAnnotations[model.id] || [];
           const textEdits = pageEdits.filter((edit) => edit.type === "textedit");
           const stripTargets = textEdits
             .filter((edit) => edit.uniqueOriginal)
@@ -2044,6 +2132,7 @@
             crop.width,
             crop.height,
             {
+              annotations: pageEdits,
               strippedOriginals: [...stripped],
               textEditIds: [...rasterTextEditIds]
             }
@@ -2085,6 +2174,7 @@
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 12000);
 
+      if (completeWorkspace && state.revision === exportRevision) state.exportedRevision = exportRevision;
       setStatus("Exported " + pages.length + " pages");
       showToast("PDF exported");
     } catch (error) {
@@ -2093,6 +2183,8 @@
       showToast("Export failed. This PDF may use unsupported encryption.", 3200);
     } finally {
       state.exporting = false;
+      exportingDocuments = [];
+      releaseUnusedSources();
       updateToolbarState();
     }
   }
@@ -2120,7 +2212,7 @@
       const context = canvas.getContext("2d", { alpha: false });
       context.fillStyle = "#ffffff";
       context.fillRect(0, 0, canvas.width, canvas.height);
-      return { width: cssWidth, height: cssHeight, rotation };
+      return { width: cssWidth, height: cssHeight, rotation, pageWidth: baseWidth, pageHeight: baseHeight };
     }
 
     const doc = getDocumentById(model.docId);
@@ -2151,11 +2243,12 @@
     context.fillRect(0, 0, canvas.width, canvas.height);
     await pdfPage.render({ canvasContext: context, viewport }).promise;
 
-    return { width: cssWidth, height: cssHeight, rotation };
+    return { width: cssWidth, height: cssHeight, rotation, pageWidth: rotation % 180 ? base.height : base.width, pageHeight: rotation % 180 ? base.width : base.height };
   }
 
   function commitAnnotations(pageId, annotations, recordHistory = true, quiet = false) {
     if (!getPageById(pageId)) return;
+    if (JSON.stringify(state.annotations[pageId] || []) === JSON.stringify(annotations || [])) return;
     if (recordHistory) pushHistory();
 
     const cleaned = deepClone(annotations || []);
@@ -2170,7 +2263,7 @@
     }
     renderInspector();
     updateToolbarState();
-    setStatus(cleaned.length ? cleaned.length + " edits saved" : "Edits cleared");
+    setStatus(cleaned.length ? cleaned.length + (cleaned.length === 1 ? " edit in this tab" : " edits in this tab") : "Edits cleared");
   }
 
   async function openPageEditor(pageId) {
@@ -2210,6 +2303,9 @@
     pastePages,
     duplicateSelected,
     addBlankPage,
+    undo,
+    redo,
+    exportWorkspace: () => exportPages(state.pages, null),
     commitAnnotations,
     renderPage: renderEditorPage,
     showToast,
@@ -2220,7 +2316,7 @@
     if (!state.loadingFiles) els.fileInput.click();
   }
 
-  [els.chooseButton, els.addButton, els.stripAddButton, els.addMoreButton]
+  [els.chooseButton, els.addButton, els.stripAddButton]
     .filter(Boolean)
     .forEach((button) => button.addEventListener("click", openPicker));
 
@@ -2255,6 +2351,24 @@
   els.exportButton.addEventListener("click", () => {
     saveCurrentEditor();
     exportPages(state.pages, null);
+  });
+
+  els.previousPageButton.addEventListener("click", () => goToPage(Number(els.pageNumber.value) - 1));
+  els.nextPageButton.addEventListener("click", () => goToPage(Number(els.pageNumber.value) + 1));
+  els.pageNumber.addEventListener("change", () => goToPage(els.pageNumber.value));
+  els.pageNumber.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); goToPage(els.pageNumber.value); els.pageNumber.blur(); }
+    if (event.key === "Escape") { updateNavigation(); els.pageNumber.blur(); }
+  });
+  $("#startBlankButton").addEventListener("click", addBlankPage);
+  const shortcuts = $("#shortcutsDialog");
+  $("#shortcutsButton").addEventListener("click", () => shortcuts.showModal());
+  $("#closeShortcutsButton").addEventListener("click", () => shortcuts.close());
+  window.addEventListener("beforeunload", (event) => {
+    if (state.revision !== state.exportedRevision || window.iWeatherPDFEditor?.hasPendingChanges()) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
   });
 
   els.undoButton.addEventListener("click", undo);
@@ -2326,10 +2440,7 @@
   });
 
   window.addEventListener("keydown", (event) => {
-    if (
-      document.body.classList.contains("pdf-editor-open") ||
-      document.body.classList.contains("pptx-viewer-open")
-    ) return;
+    if (state.loadingFiles || event.defaultPrevented || document.querySelector("dialog[open]") || document.body.classList.contains("pptx-viewer-open")) return;
     const modifier = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();
     const target = event.target;
@@ -2337,6 +2448,7 @@
       target &&
       (target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
         target.isContentEditable);
 
     if (modifier && key === "o") {
@@ -2345,7 +2457,27 @@
       return;
     }
 
-    if (typing) return;
+    if (modifier && key === "s") {
+      event.preventDefault();
+      saveCurrentEditor();
+      exportPages(state.pages, null);
+      return;
+    }
+    if (typing || event.isComposing) return;
+    if (event.key === "PageDown" || event.key === "PageUp") {
+      event.preventDefault();
+      goToPage(Number(els.pageNumber.value) + (event.key === "PageDown" ? 1 : -1));
+      return;
+    }
+    const inPages = target && target.closest && target.closest(".sidebar");
+    if (inPages && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      if (event.altKey) moveSelected(event.key === "ArrowDown" ? 1 : -1);
+      else goToPage(Number(els.pageNumber.value) + (event.key === "ArrowDown" ? 1 : -1));
+      els.sidebarPages.querySelector('.is-active')?.focus({ preventScroll: true });
+      return;
+    }
+    if (document.body.classList.contains("pdf-editor-open") && !inPages && !(modifier && ["a", "z", "y"].includes(key))) return;
 
     if (event.key === "Insert") {
       event.preventDefault();

@@ -82,7 +82,7 @@ for (const id of new Set(idSelectors)) {
 }
 
 const hostMethods = [
-  "uid","normalizeRotation","getPage","getPageIndex","getDocumentName",
+  "undo","redo","exportWorkspace","uid","normalizeRotation","getPage","getPageIndex","getDocumentName",
   "getAnnotations","getPageTextRuns","getPageImageRuns","copySelectedPages","cutSelectedPages","pastePages","duplicateSelected","addBlankPage","commitAnnotations","renderPage","showToast","setStatus"
 ];
 const hostStart = app.indexOf("window.iWeatherPDFEditorHost");

@@ -106,7 +106,8 @@
 .pdf-editor-direct-text{
   position:absolute;z-index:5;display:inline-block;width:max-content;box-sizing:border-box;
   margin:0;padding:0;border:0;border-radius:0;outline:0;box-shadow:none;
-  white-space:pre;overflow:visible;cursor:text;caret-color:#1769d2;pointer-events:auto;
+  white-space:pre-wrap;overflow:visible;cursor:text;caret-color:#1769d2;pointer-events:auto;
+  user-select:text;-webkit-user-select:text;
   text-decoration:underline;text-decoration-color:rgba(47,126,230,.5);
   text-decoration-thickness:1px;text-underline-offset:2px
 }

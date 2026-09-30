@@ -839,6 +839,197 @@
     return true;
   }
 
+  var textMeasureCanvas = null;
+
+  function textAnnotationMetrics(item, rotation, width, height) {
+    width = Math.max(1, width || (active && active.overlay.clientWidth) || 1);
+    height = Math.max(1, height || (active && active.overlay.clientHeight) || 1);
+    if (!textMeasureCanvas) textMeasureCanvas = document.createElement("canvas");
+    var ctx = textMeasureCanvas.getContext("2d");
+    var minDim = Math.min(width, height);
+    var fontPx = Math.max(8, (item.size || 0.04) * minDim);
+    ctx.font =
+      (item.italic ? "italic " : "") +
+      (item.bold ? "700 " : "400 ") +
+      fontPx + "px " + textFontCss(item);
+
+    var lines = String(item.text || "").split(/\r?\n/);
+    if (!lines.length) lines = [""];
+    var textWidth = 0;
+    lines.forEach(function (line) {
+      textWidth = Math.max(textWidth, ctx.measureText(line || " ").width);
+    });
+    textWidth = Math.max(4, textWidth);
+    var lineHeight = fontPx * 1.2;
+    var textHeight = Math.max(fontPx, fontPx + Math.max(0, lines.length - 1) * lineHeight);
+    var anchor = canonicalToDisplay({ x: item.x, y: item.y }, rotation);
+    var angle = normRotation((item.angle || 0) + rotation) * Math.PI / 180;
+    var cos = Math.cos(angle);
+    var sin = Math.sin(angle);
+    var ax = anchor.x * width;
+    var ay = anchor.y * height;
+    var corners = [
+      [0, 0],
+      [textWidth, 0],
+      [textWidth, textHeight],
+      [0, textHeight]
+    ].map(function (point) {
+      return {
+        x: ax + point[0] * cos - point[1] * sin,
+        y: ay + point[0] * sin + point[1] * cos
+      };
+    });
+    var xs = corners.map(function (point) { return point.x; });
+    var ys = corners.map(function (point) { return point.y; });
+    var left = Math.min.apply(Math, xs);
+    var right = Math.max.apply(Math, xs);
+    var top = Math.min.apply(Math, ys);
+    var bottom = Math.max.apply(Math, ys);
+
+    return {
+      anchor: anchor,
+      angleDeg: normRotation((item.angle || 0) + rotation),
+      fontPx: fontPx,
+      lineHeight: lineHeight,
+      widthPx: textWidth,
+      heightPx: textHeight,
+      rect: {
+        x: left / width,
+        y: top / height,
+        w: Math.max(1, right - left) / width,
+        h: Math.max(1, bottom - top) / height
+      }
+    };
+  }
+
+  function readMultilineEditorText(editor) {
+    var value = typeof editor.innerText === "string" ? editor.innerText : (editor.textContent || "");
+    return String(value)
+      .replace(/\u00a0/g, " ")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\n+$/g, "");
+  }
+
+  function bindAddedTextEditorEvents(editor, finish) {
+    editor.addEventListener("pointerdown", function (event) {
+      event.stopPropagation();
+    });
+    editor.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    editor.addEventListener("paste", function (event) {
+      event.preventDefault();
+      var text = (event.clipboardData || window.clipboardData).getData("text");
+      document.execCommand("insertText", false, String(text || "").replace(/\r\n?/g, "\n"));
+    });
+    editor.addEventListener("keydown", function (event) {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        finish(true);
+      }
+    });
+    editor.addEventListener("blur", function () {
+      finish(true);
+    });
+  }
+
+  function beginInlineAnnotationTextEdit(item) {
+    if (!active || !active.textHitLayer || !item || item.type !== "text") return;
+
+    if (active.directTextEditor && active.directTextEditor.isConnected) {
+      active.directTextEditor.blur();
+    }
+
+    active.selectedId = item.id;
+    updateToolControls();
+
+    var metrics = textAnnotationMetrics(
+      item,
+      active.rotation,
+      active.stage.clientWidth,
+      active.stage.clientHeight
+    );
+    var editor = document.createElement("span");
+    editor.className = "pdf-editor-direct-text is-added-edit";
+    editor.contentEditable = "true";
+    editor.spellcheck = false;
+    editor.setAttribute("role", "textbox");
+    editor.setAttribute("aria-label", "Edit added PDF text");
+    editor.innerText = item.text || "";
+    editor.style.left = (metrics.anchor.x * 100) + "%";
+    editor.style.top = (metrics.anchor.y * 100) + "%";
+    editor.style.minWidth = Math.max(12, metrics.widthPx) + "px";
+    editor.style.maxWidth = Math.max(
+      40,
+      (1 - metrics.anchor.x) * active.stage.clientWidth
+    ) + "px";
+    editor.style.minHeight = Math.max(16, metrics.heightPx) + "px";
+    editor.style.color = item.color || "#111111";
+    editor.style.background = "transparent";
+    editor.style.lineHeight = "1.2";
+    editor.style.fontFamily = textFontCss(item);
+    editor.style.fontSize = metrics.fontPx + "px";
+    editor.style.fontWeight = item.bold ? "700" : "400";
+    editor.style.fontStyle = item.italic ? "italic" : "normal";
+    editor.style.textDecorationLine = item.underline ? "underline" : "none";
+    editor.style.transformOrigin = "0 0";
+    editor.style.transform = "rotate(" + metrics.angleDeg + "deg)";
+
+    active.textHitLayer.appendChild(editor);
+    active.directTextEditor = editor;
+    active.status.textContent = "Edit text · Enter for new line · Ctrl/Cmd+Enter to finish · Esc to cancel";
+
+    requestAnimationFrame(function () {
+      if (!editor.isConnected) return;
+      editor.focus({ preventScroll: true });
+      var selection = window.getSelection();
+      if (!selection) return;
+      var range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    var closed = false;
+    function finish(commit) {
+      if (closed) return;
+      closed = true;
+      var value = readMultilineEditorText(editor);
+      editor.remove();
+      if (active && active.directTextEditor === editor) active.directTextEditor = null;
+      if (!active) return;
+
+      if (!commit) {
+        active.status.textContent = "Text edit cancelled";
+        draw();
+        return;
+      }
+
+      if (value !== String(item.text || "")) {
+        pushLocalHistory();
+        if (value.trim()) {
+          item.text = value.slice(0, 4000);
+          active.selectedId = item.id;
+          active.status.textContent = "Text updated";
+        } else {
+          active.annotations = active.annotations.filter(function (annotation) {
+            return annotation.id !== item.id;
+          });
+          active.selectedId = null;
+          active.status.textContent = "Text removed";
+        }
+      }
+      draw();
+    }
+
+    bindAddedTextEditorEvents(editor, finish);
+  }
+
   function beginInlineTextEdit(run, existing) {
     if (!active || !active.textHitLayer) return;
 
@@ -971,7 +1162,7 @@
     editor.style.minHeight = Math.max(16, Number(active.size.value) * 1.1) + "px";
     editor.style.color = active.color.value;
     editor.style.background = "transparent";
-    editor.style.lineHeight = "1.15";
+    editor.style.lineHeight = "1.2";
     editor.style.fontFamily = textFontCss({ fontFamily: active.textFont.value });
     editor.style.fontSize = Number(active.size.value) + "px";
     editor.style.fontWeight = active.textStyle.bold ? "700" : "400";
@@ -980,7 +1171,7 @@
 
     active.textHitLayer.appendChild(editor);
     active.directTextEditor = editor;
-    active.status.textContent = "Type directly on the page · Enter to place · Esc to cancel";
+    active.status.textContent = "Type directly on the page · Enter for new line · Ctrl/Cmd+Enter to place · Esc to cancel";
 
     requestAnimationFrame(function () {
       if (!editor.isConnected) return;
@@ -991,13 +1182,13 @@
     function finish(commit) {
       if (closed) return;
       closed = true;
-      var value = (editor.textContent || "").replace(/\u00a0/g, " ").replace(/\r?\n/g, " ").trim();
+      var value = readMultilineEditorText(editor);
       editor.remove();
       if (active && active.directTextEditor === editor) {
         active.directTextEditor = null;
       }
 
-      if (commit && value && active) {
+      if (commit && value.trim() && active) {
         pushLocalHistory();
         var item = {
           id: host().uid("edit"),
@@ -1023,30 +1214,7 @@
       }
     }
 
-    editor.addEventListener("pointerdown", function (event) {
-      event.stopPropagation();
-    });
-    editor.addEventListener("click", function (event) {
-      event.stopPropagation();
-    });
-    editor.addEventListener("paste", function (event) {
-      event.preventDefault();
-      var text = (event.clipboardData || window.clipboardData).getData("text");
-      document.execCommand("insertText", false, text.replace(/\r?\n/g, " "));
-    });
-    editor.addEventListener("keydown", function (event) {
-      event.stopPropagation();
-      if (event.key === "Enter") {
-        event.preventDefault();
-        finish(true);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        finish(false);
-      }
-    });
-    editor.addEventListener("blur", function () {
-      finish(true);
-    });
+    bindAddedTextEditorEvents(editor, finish);
   }
 
   function drawExistingTextHotspots(ctx, width, height) {
@@ -1107,9 +1275,39 @@
       return;
     }
 
-    if (active.tool !== "edittext" || !Array.isArray(active.textRuns)) return;
+    if (active.tool !== "edittext") return;
     var edited = editedTextKeys();
 
+    active.annotations.forEach(function (item) {
+      if (item.type !== "text") return;
+      var rect = textAnnotationMetrics(
+        item,
+        active.rotation,
+        active.stage.clientWidth,
+        active.stage.clientHeight
+      ).rect;
+      var hit = document.createElement("button");
+      hit.type = "button";
+      hit.className = "pdf-editor-text-hit is-added";
+      hit.style.left = (rect.x * 100) + "%";
+      hit.style.top = (rect.y * 100) + "%";
+      hit.style.width = (rect.w * 100) + "%";
+      hit.style.height = (rect.h * 100) + "%";
+      hit.title = item.text || "Added text";
+      hit.setAttribute("aria-label", "Edit added text");
+      hit.addEventListener("pointerdown", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      hit.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        beginInlineAnnotationTextEdit(item);
+      });
+      active.textHitLayer.appendChild(hit);
+    });
+
+    if (!Array.isArray(active.textRuns)) return;
     active.textRuns.forEach(function (run) {
       if (edited.has(run.key)) return;
       var rect = rectToDisplay(run, active.rotation);
@@ -1479,6 +1677,7 @@
     overlay.addEventListener("pointerdown", pointerDown);
     overlay.addEventListener("pointermove", pointerMove);
     overlay.addEventListener("pointerup", pointerUp);
+    overlay.addEventListener("dblclick", doubleClick);
     overlay.addEventListener("pointercancel", pointerUp);
     stageWrap.addEventListener("wheel", wheelZoom, { passive: false });
 
@@ -1637,6 +1836,16 @@
     };
   }
 
+  function doubleClick(event) {
+    if (!active || active.tool !== "select" || event.button > 0) return;
+    var hit = hitTest(pointFromEvent(event));
+    if (!hit || hit.type !== "text") return;
+    event.preventDefault();
+    event.stopPropagation();
+    active.pointer = null;
+    beginInlineAnnotationTextEdit(hit);
+  }
+
   function pointerDown(event) {
     if (!active) return;
     if (event.button === 1 || active.spacePan) {
@@ -1665,9 +1874,9 @@
           id: event.pointerId,
           mode: "move",
           start: canonical,
-          original: copy(hit)
+          original: copy(hit),
+          historyPushed: false
         };
-        pushLocalHistory();
       }
       draw();
       return;
@@ -1675,6 +1884,10 @@
 
     if (active.tool === "edittext") {
       var existingEdit = hitTest(displayPoint);
+      if (existingEdit && existingEdit.type === "text") {
+        beginInlineAnnotationTextEdit(existingEdit);
+        return;
+      }
       if (existingEdit && existingEdit.type === "textedit") {
         beginInlineTextEdit(null, existingEdit);
         return;
@@ -1774,6 +1987,10 @@
     } else if (pointer.mode === "move") {
       var dx = canonical.x - pointer.start.x;
       var dy = canonical.y - pointer.start.y;
+      if (!pointer.historyPushed && Math.abs(dx) + Math.abs(dy) > 0.0001) {
+        pushLocalHistory();
+        pointer.historyPushed = true;
+      }
       moveAnnotation(item, pointer.original, dx, dy);
     }
     draw();
@@ -1828,8 +2045,21 @@
       }
 
       if (item.type === "text") {
-        var anchor = canonicalToDisplay({ x: item.x, y: item.y }, active.rotation);
-        if (Math.abs(anchor.x - displayPoint.x) < 0.12 && Math.abs(anchor.y - displayPoint.y) < 0.05) return item;
+        var textMetrics = textAnnotationMetrics(
+          item,
+          active.rotation,
+          active.overlay.clientWidth,
+          active.overlay.clientHeight
+        );
+        var textRect = textMetrics.rect;
+        var padX = 4 / Math.max(1, active.overlay.clientWidth);
+        var padY = 4 / Math.max(1, active.overlay.clientHeight);
+        if (
+          displayPoint.x >= textRect.x - padX &&
+          displayPoint.x <= textRect.x + textRect.w + padX &&
+          displayPoint.y >= textRect.y - padY &&
+          displayPoint.y <= textRect.y + textRect.h + padY
+        ) return item;
         continue;
       }
 
@@ -2005,8 +2235,7 @@
       if (selectedId === item.id && item.type !== "image") {
         var box;
         if (item.type === "text") {
-          var p = canonicalToDisplay({ x: item.x, y: item.y }, rotation);
-          box = { x: p.x - 0.01, y: p.y - 0.01, w: 0.18, h: 0.07 };
+          box = textAnnotationMetrics(item, rotation, width, height).rect;
         } else if (item.type === "pen") {
           var xs = [], ys = [];
           (item.points || []).forEach(function (point) {

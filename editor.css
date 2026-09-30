@@ -356,3 +356,22 @@
 .pdf-editor-text-hit.is-edited:focus-visible{
   background:rgba(244,196,48,.08);
 }
+
+/* Keep guidance outside the document and expose one workspace history. */
+.pdf-editor-status{position:static;border-radius:0;background:#f7f7f3;color:#555247;padding:7px 12px;border-top:1px solid #d2d0c5;font-size:11px;min-height:29px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pdf-editor-embed .pdf-editor-shell{grid-template-rows:auto minmax(0,1fr) auto}
+.pdf-editor-backdrop .pdf-editor-shell{grid-template-rows:54px auto minmax(0,1fr) auto}
+.pdf-editor-btn:focus-visible,.pdf-editor-tool:focus-visible{outline:2px solid #806000;outline-offset:2px}
+.pdf-editor-tools{min-height:42px}
+.pdf-editor-text-hit-layer{overflow:hidden}
+@media(max-width:640px){
+  .pdf-editor-embed .pdf-editor-tools{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px;padding:4px 5px;overflow:hidden}
+  .pdf-editor-tool-list{grid-column:1/-1;overflow-x:auto;min-width:0;scrollbar-width:thin}
+  .pdf-editor-zoom{grid-row:2;grid-column:1}
+  .pdf-editor-props{grid-row:2;grid-column:2;min-width:0;overflow-x:auto;margin-left:0;scrollbar-width:thin}
+  .pdf-editor-props select.pdf-editor-btn{display:block;min-width:95px}
+  .pdf-editor-range{display:block;min-width:65px}
+}
+
+.pdf-editor-props > *{flex-shrink:0}
+.pdf-editor-size-select{min-width:55px}

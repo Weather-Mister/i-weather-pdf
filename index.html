@@ -7,7 +7,7 @@
   <meta name="description" content="I Weather PDF — a fast, private, browser-based PDF workspace.">
   <title>I Weather PDF</title>
   <link rel="icon" href="./favicon.svg?v=3" type="image/svg+xml">
-  <link rel="stylesheet" href="./styles.css?v=17">
+  <link rel="stylesheet" href="./styles.css?v=18">
 </head>
 <body>
   <div class="app-shell">
@@ -24,12 +24,13 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M15 4v5h4"/><path d="M9 9h3a2 2 0 0 1 0 4H9zM9 9v7"/></svg>
           <span>PPTX</span>
         </button>
+        <button class="icon-button" id="shortcutsButton" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
         <div class="history-buttons" aria-label="History">
-          <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
-            <svg viewBox="0 0 24 24"><path d="M9 8 4.5 12 9 16"/><path d="M5 12h8.5a5.5 5.5 0 0 1 0 11"/></svg>
+          <button class="icon-button" id="undoButton" title="Undo (Ctrl/⌘ Z)" aria-label="Undo" disabled>
+            <svg viewBox="0 0 24 24"><path d="m9 5-5 5 5 5M4 10h10a6 6 0 0 1 6 6v3"/></svg>
           </button>
-          <button class="icon-button" id="redoButton" title="Redo" aria-label="Redo" disabled>
-            <svg viewBox="0 0 24 24"><path d="m15 8 4.5 4-4.5 4"/><path d="M19 12h-8.5a5.5 5.5 0 0 0 0 11"/></svg>
+          <button class="icon-button" id="redoButton" title="Redo (Ctrl/⌘ Shift Z)" aria-label="Redo" disabled>
+            <svg viewBox="0 0 24 24"><path d="m15 5 5 5-5 5M20 10H10a6 6 0 0 0-6 6v3"/></svg>
           </button>
         </div>
         <button class="add-button" id="addButton" title="Add PDFs">
@@ -60,6 +61,7 @@
           <h1>Drop PDFs here</h1>
           <p>Add one or many files. Everything stays on this device.</p>
           <button class="choose-button" id="chooseButton">Choose PDFs</button>
+          <button class="secondary-button" id="startBlankButton">Start with a blank page</button>
           <div class="drop-hint">or drag files anywhere into this window</div>
         </div>
       </section>
@@ -69,6 +71,12 @@
           <div class="sidebar-heading">
             <span>Pages</span>
             <span class="page-count" id="pageCount">0</span>
+          </div>
+          <div class="page-navigation" aria-label="Page navigation">
+            <button id="previousPageButton" aria-label="Previous page" title="Previous page (Page Up)" disabled>‹</button>
+            <input id="pageNumber" type="number" min="1" value="1" aria-label="Go to page" inputmode="numeric">
+            <span id="pageTotal">/ 0</span>
+            <button id="nextPageButton" aria-label="Next page" title="Next page (Page Down)" disabled>›</button>
           </div>
           <div class="sidebar-reorder-hint" title="Drag to reorder. Ctrl/Cmd-click or Shift-click to select multiple pages.">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"/></svg>
@@ -82,6 +90,7 @@
             <div>
               <strong id="workspaceTitle">Workspace</strong>
               <span id="workspaceMeta">PDFs loaded locally</span>
+              <span id="selectionSummary" aria-live="polite"></span>
             </div>
             <div class="canvas-actions">
               <button class="canvas-icon-button" id="rotateLeftButton" type="button" disabled title="Rotate selected left" aria-label="Rotate selected left">
@@ -107,22 +116,15 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M15 4v5h4"/><path d="M9 14h6M12 11v6"/></svg>
                 <span>Extract</span>
               </button>
-              <button class="export-button" id="exportButton" disabled>
+              <button class="export-button" id="exportButton" title="Download edited PDF (Ctrl/⌘ S)" disabled>
                 <svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 20h14"/></svg>
-                <span>Export</span>
+                <span>Export PDF</span>
               </button>
             </div>
           </div>
 
           <div class="page-grid" id="pageGrid">
-            <div class="engine-placeholder">
-              <div class="placeholder-stack" aria-hidden="true">
-                <span></span><span></span><span></span>
-              </div>
-              <h2>Files added</h2>
-              <p>The lightweight workspace shell is ready. Next we’ll connect the PDF engine so every page renders here as a draggable thumbnail.</p>
-              <button class="secondary-button" id="addMoreButton">Add another PDF</button>
-            </div>
+
           </div>
         </section>
         <aside class="inspector" id="inspector" hidden></aside>
@@ -130,7 +132,7 @@
     </main>
 
     <footer class="statusbar">
-      <div class="privacy-status"><span class="status-dot"></span>Local-only workspace</div>
+      <div class="privacy-status"><span class="status-dot"></span>Local · Export to keep changes</div>
       <div id="statusText">Ready</div>
     </footer>
 
@@ -142,8 +144,25 @@
       </div>
     </div>
 
+    <dialog id="shortcutsDialog" class="shortcuts-dialog" aria-labelledby="shortcutsTitle">
+      <h2 id="shortcutsTitle">Keyboard shortcuts</h2>
+      <dl>
+        <dt>Add PDFs</dt><dd>Ctrl / ⌘ O</dd><dt>Export PDF</dt><dd>Ctrl / ⌘ S</dd>
+        <dt>Undo / Redo</dt><dd>Ctrl / ⌘ Z · Shift Z</dd>
+        <dt>Copy / Cut / Paste / Duplicate</dt><dd>Ctrl / ⌘ C · X · V · D</dd>
+        <dt>Select / Text / Pen / Highlight / Rectangle</dt><dd>V · T · P · H · R</dd>
+        <dt>Previous / Next page</dt><dd>Page Up / Page Down</dd>
+        <dt>Move selected edit</dt><dd>Arrow keys · Shift for larger steps</dd>
+        <dt>Reorder focused page</dt><dd>Alt + ↑ / ↓</dd>
+        <dt>Zoom / Fit page</dt><dd>Ctrl / ⌘ + · − · 0</dd>
+        <dt>Pan</dt><dd>Hold Space and drag</dd>
+        <dt>Finish added text / Cancel</dt><dd>Ctrl / ⌘ Enter · Esc</dd>
+      </dl>
+      <p>Page shortcuts act on selected pages when the page rail has focus. In the editor, copy and delete act on the selected edit. Changes stay in this tab until you export.</p>
+      <button id="closeShortcutsButton" class="choose-button">Done</button>
+    </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=19" defer></script>
+  <script src="./app.js?v=20" defer></script>
 </body>
 </html>

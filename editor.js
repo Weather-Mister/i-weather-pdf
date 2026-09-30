@@ -86,6 +86,7 @@
   function pushLocalHistory() {
     if (!active) return;
     active.dirty = true;
+    if (active.embedded) return;
     active.undo.push(copy(active.annotations));
     if (active.undo.length > 30) active.undo.shift();
     active.redo = [];
@@ -93,6 +94,7 @@
   }
 
   function localUndo() {
+    if (active && active.embedded) return host().undo();
     if (!active || !active.undo.length) return;
     active.dirty = true;
     active.redo.push(copy(active.annotations));
@@ -103,6 +105,7 @@
   }
 
   function localRedo() {
+    if (active && active.embedded) return host().redo();
     if (!active || !active.redo.length) return;
     active.dirty = true;
     active.undo.push(copy(active.annotations));
@@ -176,6 +179,7 @@
     active.selectedId = null;
     active.toolButtons.forEach(function (button) {
       button.classList.toggle("is-active", button.dataset.tool === tool);
+      button.setAttribute("aria-pressed", String(button.dataset.tool === tool));
     });
     active.overlay.classList.toggle("select", tool === "select");
     active.overlay.classList.toggle("edit-existing-text", tool === "edittext");
@@ -237,14 +241,7 @@
 
   function textReferenceMinDim() {
     if (!active) return 1;
-    if (active.fitWidth > 0 && active.fitHeight > 0) {
-      return Math.max(1, Math.min(active.fitWidth, active.fitHeight));
-    }
-    var current = Math.max(
-      1,
-      Math.min(active.overlay.clientWidth || 1, active.overlay.clientHeight || 1)
-    );
-    return Math.max(1, current / Math.max(0.01, active.zoom || 1));
+    return Math.max(1, Math.min(active.pageWidth || 612, active.pageHeight || 792));
   }
 
   function textDisplayScale() {
@@ -270,10 +267,7 @@
     if (!active || !active.directTextEditor || !active.directTextEditor.isConnected) return;
     var editor = active.directTextEditor;
     var px = Number(active.size.value) || 24;
-    var displayPx =
-      editor.classList.contains("is-new") || editor.classList.contains("is-added-edit")
-        ? textUiPxToDisplayPx(px)
-        : px;
+    var displayPx = textUiPxToDisplayPx(px);
     editor.style.color = active.color.value;
     editor.style.fontFamily = textFontCss({ fontFamily: active.textFont.value });
     editor.style.fontSize = displayPx + "px";
@@ -292,6 +286,10 @@
 
   function applyTextFormatChange(property, value) {
     if (!active) return;
+    if (property === "sizePx") {
+      value = clamp(Number(value) || 24, 6, 200);
+      active.size.value = String(value);
+    }
     var item = selectedAnnotation();
     var selectedText = item && (item.type === "text" || item.type === "textedit");
 
@@ -311,7 +309,7 @@
             : "sans";
       } else if (property === "sizePx") {
         var basis = item.type === "textedit"
-          ? (active.rotation % 180 ? active.overlay.clientWidth : active.overlay.clientHeight)
+          ? active.pageHeight
           : textReferenceMinDim();
         item.size = Number(value) / Math.max(1, basis);
         if (item.type === "textedit") item.manualSize = true;
@@ -346,7 +344,7 @@
       }
       active.textFont.value = selectedFamily;
       var selectedBasis = selected.type === "textedit"
-        ? (active.rotation % 180 ? active.overlay.clientWidth : active.overlay.clientHeight)
+        ? active.pageHeight
         : textReferenceMinDim();
       active.size.value = String(Math.max(6, Math.round((selected.size || 0.04) * Math.max(1, selectedBasis))));
       active.color.value = selected.color || "#111111";
@@ -392,6 +390,8 @@
     setStageCssSize(dims.width, dims.height);
     resizeOverlay(dims.width, dims.height);
     active.rotation = dims.rotation;
+    active.pageWidth = dims.pageWidth || 612;
+    active.pageHeight = dims.pageHeight || 792;
     draw();
   }
 
@@ -455,6 +455,7 @@
 
   async function fitPage() {
     if (!active) return;
+    finishPendingText(true);
     var current = active;
     clearTimeout(current.zoomRenderTimer);
     var generation = ++current.zoomRenderGeneration;
@@ -939,7 +940,13 @@
       .replace(/\n+$/g, "");
   }
 
+  function finishPendingText(commit) {
+    var editor = active && active.directTextEditor;
+    if (editor && editor.finishEditing) editor.finishEditing(commit);
+  }
+
   function bindAddedTextEditorEvents(editor, finish) {
+    editor.finishEditing = finish;
     editor.addEventListener("pointerdown", function (event) {
       event.stopPropagation();
     });
@@ -953,6 +960,10 @@
     });
     editor.addEventListener("keydown", function (event) {
       event.stopPropagation();
+      if (event.isComposing) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault(); finish(true); host().exportWorkspace(); return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         finish(false);
@@ -1100,7 +1111,7 @@
       active.textFont.append(currentOption);
     }
     active.textFont.value = currentFamily;
-    active.size.value = String(Math.max(6, Math.round(fontPx)));
+    active.size.value = String(Math.max(6, Math.round(fontPx / textDisplayScale())));
     active.color.value = colors.color;
     active.textStyle.bold = !!source.bold;
     active.textStyle.italic = !!source.italic;
@@ -1155,8 +1166,13 @@
       var text = (event.clipboardData || window.clipboardData).getData("text");
       document.execCommand("insertText", false, text.replace(/\r?\n/g, " "));
     });
+    editor.finishEditing = finish;
     editor.addEventListener("keydown", function (event) {
       event.stopPropagation();
+      if (event.isComposing) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault(); finish(true); host().exportWorkspace(); return;
+      }
       if (event.key === "Enter") {
         event.preventDefault();
         finish(true);
@@ -1519,17 +1535,20 @@
     pageCanvas.className = "pdf-editor-page";
     var overlay = document.createElement("canvas");
     overlay.className = "pdf-editor-overlay";
+    overlay.tabIndex = 0;
+    overlay.setAttribute("aria-label", "PDF page editing area");
     var textHitLayer = document.createElement("div");
     textHitLayer.className = "pdf-editor-text-hit-layer";
     var status = document.createElement("div");
     status.className = "pdf-editor-status";
-    stage.append(pageCanvas, overlay, textHitLayer, status);
+    stage.append(pageCanvas, overlay, textHitLayer);
     stageWrap.append(stage);
 
     var color = document.createElement("input");
     color.type = "color";
     color.className = "pdf-editor-color";
-    color.value = "#e74a3b";
+    color.value = "#171714";
+    color.setAttribute("aria-label", "Color");
     color.title = "Color";
 
     var stroke = document.createElement("input");
@@ -1540,11 +1559,12 @@
     stroke.step = "1";
     stroke.value = "4";
     stroke.title = "Stroke width";
+    stroke.setAttribute("aria-label", "Stroke width");
 
     var size = document.createElement("input");
     size.type = "number";
     size.className = "pdf-editor-btn pdf-editor-size-select";
-    size.title = "Font size";
+    size.title = "Font size (pt)";
     size.setAttribute("aria-label", "Font size");
     size.min = "6";
     size.max = "200";
@@ -1554,6 +1574,7 @@
     var textFont = document.createElement("select");
     textFont.className = "pdf-editor-btn pdf-editor-font-select";
     textFont.title = "Font";
+    textFont.setAttribute("aria-label", "Font family");
     [
       ["Arial", "Arial"],
       ["Helvetica", "Helvetica"],
@@ -1696,10 +1717,10 @@
 
     if (embedded) {
       right.classList.add("pdf-editor-inline-actions");
-      tools.append(right);
-      shell.append(tools, stageWrap);
+      // The workspace toolbar owns history and export. Edits are retained automatically.
+      shell.append(tools, stageWrap, status);
     } else {
-      shell.append(topbar, tools, stageWrap);
+      shell.append(topbar, tools, stageWrap, status);
     }
     backdrop.append(shell);
     if (embedded) {
@@ -1793,8 +1814,8 @@
 
   function saveCurrent() {
     if (!active) return false;
+    finishPendingText(true);
     if (!hasChanges(active)) {
-      active.status.textContent = "Saved";
       return false;
     }
     host().commitAnnotations(active.pageId, active.annotations, true, !!active.embedded);
@@ -1802,12 +1823,13 @@
     active.undo = [];
     active.redo = [];
     updateUndoRedo();
-    active.status.textContent = "Saved";
+    active.status.textContent = "Edits kept in this tab · Export PDF to download";
     return true;
   }
 
   function close(save) {
     if (!active) return;
+    finishPendingText(!!save);
     var current = active;
     window.removeEventListener("keydown", keydown);
     window.removeEventListener("keyup", keyup);
@@ -1883,6 +1905,7 @@
 
   function pointerDown(event) {
     if (!active) return;
+    active.overlay.focus({ preventScroll: true });
     if (event.button === 1 || active.spacePan) {
       beginPan(event);
       return;
@@ -2137,6 +2160,7 @@
     drawExistingTextHotspots(ctx, canvas.width, canvas.height);
     drawExistingImageHotspots(ctx, canvas.width, canvas.height);
     renderTextHitLayer();
+    if (active.embedded && active.dirty && !active.pointer && !active.directTextEditor) saveCurrent();
   }
 
   function drawAnnotations(ctx, annotations, width, height, rotation, selectedId, allowAsyncImages) {
@@ -2436,7 +2460,7 @@
 
   async function exportOverlay(pageId, pageWidth, pageHeight, options) {
     options = options || {};
-    var annotations = host().getAnnotations(pageId);
+    var annotations = options.annotations || host().getAnnotations(pageId);
     var textEditIds = new Set(options.textEditIds || []);
     annotations = annotations.filter(function (item) {
       return item.type !== "textedit" || textEditIds.has(item.id);
@@ -2558,7 +2582,9 @@
   }
 
   function keydown(event) {
-    if (!active) return;
+    if (!active || event.defaultPrevented || event.isComposing || document.querySelector("dialog[open]") || document.body.classList.contains("pptx-viewer-open")) return;
+    var target = event.target;
+    if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || (target.closest && target.closest(".sidebar")))) return;
 
     var directTextTarget =
       event.target &&
@@ -2569,6 +2595,27 @@
     var modifier = event.metaKey || event.ctrlKey;
     var key = event.key.toLowerCase();
 
+    if (!modifier && !event.altKey && !event.shiftKey) {
+      var toolKeys = { v: "select", t: "text", p: "pen", h: "highlight", r: "rect" };
+      if (toolKeys[key]) { event.preventDefault(); setTool(toolKeys[key]); return; }
+    }
+    if (event.key === "Enter" && active.selectedId) {
+      var selected = selectedAnnotation();
+      if (selected && selected.type === "text") { event.preventDefault(); beginInlineAnnotationTextEdit(selected); return; }
+    }
+    if (!modifier && /^Arrow(Left|Right|Up|Down)$/.test(event.key) && active.selectedId) {
+      var selected = selectedAnnotation();
+      if (selected && selected.type !== "textedit") {
+        event.preventDefault();
+        var pixels = event.shiftKey ? 10 : 1;
+        var center = { x: .5, y: .5 };
+        var destination = { x: .5 + (key === "arrowright" ? pixels : key === "arrowleft" ? -pixels : 0) / active.overlay.clientWidth,
+          y: .5 + (key === "arrowdown" ? pixels : key === "arrowup" ? -pixels : 0) / active.overlay.clientHeight };
+        var start = displayToCanonical(center, active.rotation), end = displayToCanonical(destination, active.rotation);
+        pushLocalHistory(); moveAnnotation(selected, copy(selected), end.x - start.x, end.y - start.y); draw();
+        return;
+      }
+    }
     if (event.key === "Insert") {
       event.preventDefault();
       if (host().addBlankPage) host().addBlankPage();
@@ -2605,7 +2652,7 @@
       return;
     }
 
-    if (event.code === "Space" && !modifier) {
+    if (event.code === "Space" && !modifier && !(target && target.closest && target.closest("button"))) {
       active.spacePan = true;
       active.stageWrap.classList.add("is-pan-ready");
       event.preventDefault();
@@ -2671,6 +2718,7 @@
     open: open,
     close: close,
     save: saveCurrent,
+    hasPendingChanges: function () { return !!(active && (active.dirty || active.directTextEditor)); },
     exportOverlay: exportOverlay
   };
 })();

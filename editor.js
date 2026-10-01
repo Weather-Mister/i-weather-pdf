@@ -86,16 +86,18 @@
   function pushLocalHistory() {
     if (!active) return;
     active.dirty = true;
-    if (active.embedded) return;
     active.undo.push(copy(active.annotations));
-    if (active.undo.length > 30) active.undo.shift();
+    if (active.undo.length > 40) active.undo.shift();
     active.redo = [];
     updateUndoRedo();
   }
 
   function localUndo() {
-    if (active && active.embedded) return host().undo();
-    if (!active || !active.undo.length) return;
+    if (!active) return;
+    if (!active.undo.length) {
+      if (active.embedded && host().undo) return host().undo();
+      return;
+    }
     active.dirty = true;
     active.redo.push(copy(active.annotations));
     active.annotations = active.undo.pop();
@@ -105,8 +107,11 @@
   }
 
   function localRedo() {
-    if (active && active.embedded) return host().redo();
-    if (!active || !active.redo.length) return;
+    if (!active) return;
+    if (!active.redo.length) {
+      if (active.embedded && host().redo) return host().redo();
+      return;
+    }
     active.dirty = true;
     active.undo.push(copy(active.annotations));
     active.annotations = active.redo.pop();
@@ -1697,6 +1702,7 @@
       lastWrapWidth: 0,
       lastWrapHeight: 0,
       spacePan: false,
+      drawFrame: null,
       embedded: embedded,
       mount: options.mount || null
     };
@@ -1820,8 +1826,12 @@
     }
     host().commitAnnotations(active.pageId, active.annotations, true, !!active.embedded);
     active.dirty = false;
-    active.undo = [];
-    active.redo = [];
+    // Embedded editing autosaves into the workspace, but its local history must
+    // survive so Ctrl/Cmd+Z can undo a stroke without rebuilding/refitting the page.
+    if (!active.embedded) {
+      active.undo = [];
+      active.redo = [];
+    }
     updateUndoRedo();
     active.status.textContent = "Edits kept in this tab · Export PDF to download";
     return true;
@@ -1836,6 +1846,7 @@
     window.removeEventListener("blur", clearPanKey);
     clearTimeout(current.zoomRenderTimer);
     clearTimeout(current.resizeTimer);
+    if (current.drawFrame) cancelAnimationFrame(current.drawFrame);
     if (current.resizeObserver) current.resizeObserver.disconnect();
     if (save && hasChanges(current)) {
       host().commitAnnotations(current.pageId, current.annotations, true, !!current.embedded);
@@ -1891,6 +1902,55 @@
       x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
       y: clamp((event.clientY - rect.top) / rect.height, 0, 1)
     };
+  }
+
+  function pointerPressure(event) {
+    if (!event || event.pointerType !== "pen") return 0.5;
+    var pressure = Number(event.pressure);
+    return Number.isFinite(pressure) && pressure > 0 ? clamp(pressure, 0.08, 1) : 0.5;
+  }
+
+  function penPointFromEvent(event) {
+    var canonical = displayToCanonical(pointFromEvent(event), active.rotation);
+    canonical.pressure = pointerPressure(event);
+    return canonical;
+  }
+
+  function penPointDistancePx(a, b) {
+    var first = canonicalToDisplay(a, active.rotation);
+    var second = canonicalToDisplay(b, active.rotation);
+    return Math.hypot(
+      (second.x - first.x) * Math.max(1, active.overlay.clientWidth),
+      (second.y - first.y) * Math.max(1, active.overlay.clientHeight)
+    );
+  }
+
+  function appendPenPoint(item, event) {
+    if (!item || item.points.length >= 8000) return;
+    var point = penPointFromEvent(event);
+    var last = item.points[item.points.length - 1];
+    // Keep sub-pixel samples from high-rate styluses without bloating long strokes.
+    if (!last || penPointDistancePx(last, point) >= 0.35) item.points.push(point);
+  }
+
+  function drawOverlayOnly() {
+    if (!active) return;
+    var canvas = active.overlay;
+    var ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawAnnotations(ctx, active.annotations, canvas.width, canvas.height, active.rotation, active.selectedId, true);
+  }
+
+  function schedulePointerDraw() {
+    if (!active || active.drawFrame) return;
+    var current = active;
+    current.drawFrame = requestAnimationFrame(function () {
+      if (!active || active !== current) return;
+      current.drawFrame = null;
+      // While inking, avoid rebuilding DOM hit layers on every pointer sample.
+      if (current.pointer && current.pointer.mode === "pen") drawOverlayOnly();
+      else draw();
+    });
   }
 
   function doubleClick(event) {
@@ -1979,12 +2039,13 @@
 
     if (active.tool === "pen") {
       pushLocalHistory();
+      var penStart = { x: canonical.x, y: canonical.y, pressure: pointerPressure(event) };
       var pen = {
         id: host().uid("edit"),
         type: "pen",
         color: active.color.value,
         width: widthN,
-        points: [canonical]
+        points: [penStart]
       };
       active.annotations.push(pen);
       active.pointer = { id: event.pointerId, mode: "pen", annotationId: pen.id };
@@ -2033,12 +2094,12 @@
     if (!item) return;
 
     if (pointer.mode === "pen") {
-      var last = item.points[item.points.length - 1];
-      if (
-        (!last || Math.abs(last.x - canonical.x) + Math.abs(last.y - canonical.y) > 0.0015) &&
-        item.points.length < 8000
-      ) {
-        item.points.push(canonical);
+      var samples = typeof event.getCoalescedEvents === "function"
+        ? event.getCoalescedEvents()
+        : [event];
+      if (!samples || !samples.length) samples = [event];
+      for (var sampleIndex = 0; sampleIndex < samples.length && item.points.length < 8000; sampleIndex++) {
+        appendPenPoint(item, samples[sampleIndex]);
       }
     } else if (pointer.mode === "shape") {
       var x1 = pointer.start.x;
@@ -2056,13 +2117,18 @@
       }
       moveAnnotation(item, pointer.original, dx, dy);
     }
-    draw();
+    if (pointer.mode === "pen") schedulePointerDraw();
+    else draw();
   }
 
   function pointerUp(event) {
     if (!active || !active.pointer || event.pointerId !== active.pointer.id) return;
     event.preventDefault();
     var pointer = active.pointer;
+    if (active.drawFrame) {
+      cancelAnimationFrame(active.drawFrame);
+      active.drawFrame = null;
+    }
     active.pointer = null;
     active.overlay.classList.remove("panning");
     if (pointer.mode === "pan") return;
@@ -2153,10 +2219,9 @@
   function draw() {
     if (!active) return;
     updateToolControls();
+    drawOverlayOnly();
     var canvas = active.overlay;
     var ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawAnnotations(ctx, active.annotations, canvas.width, canvas.height, active.rotation, active.selectedId, true);
     drawExistingTextHotspots(ctx, canvas.width, canvas.height);
     drawExistingImageHotspots(ctx, canvas.width, canvas.height);
     renderTextHitLayer();
@@ -2187,16 +2252,33 @@
           return;
         }
         ctx.strokeStyle = item.color || "#e74a3b";
+        ctx.fillStyle = item.color || "#e74a3b";
         ctx.lineWidth = Math.max(1, (item.width || 0.004) * minDim);
-        ctx.beginPath();
-        item.points.forEach(function (point, index) {
+        var penPoints = item.points.map(function (point) {
           var p = canonicalToDisplay(point, rotation);
-          var x = p.x * width;
-          var y = p.y * height;
-          if (index === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+          return { x: p.x * width, y: p.y * height, pressure: point.pressure };
         });
-        ctx.stroke();
+        if (penPoints.length === 1) {
+          ctx.beginPath();
+          ctx.arc(penPoints[0].x, penPoints[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(penPoints[0].x, penPoints[0].y);
+          for (var penIndex = 1; penIndex < penPoints.length - 1; penIndex++) {
+            var currentPoint = penPoints[penIndex];
+            var nextPoint = penPoints[penIndex + 1];
+            ctx.quadraticCurveTo(
+              currentPoint.x,
+              currentPoint.y,
+              (currentPoint.x + nextPoint.x) / 2,
+              (currentPoint.y + nextPoint.y) / 2
+            );
+          }
+          var lastPenPoint = penPoints[penPoints.length - 1];
+          ctx.lineTo(lastPenPoint.x, lastPenPoint.y);
+          ctx.stroke();
+        }
       } else if (item.type === "text") {
         var anchor = canonicalToDisplay({ x: item.x, y: item.y }, rotation);
         var fontPx = Math.max(8, (item.size || 0.04) * minDim);

@@ -1926,8 +1926,8 @@
 
   function penStrokeWidth(item, point) {
     var base = Math.max(1, (item.width || 0.004) * Math.min(active.overlay.width, active.overlay.height));
-    var pressure = point && Number.isFinite(point.pressure) ? point.pressure : 0.5;
-    return base * (0.7 + pressure * 0.8);
+    if (!point || !Number.isFinite(point.pressure)) return base;
+    return base * (0.7 + point.pressure * 0.8);
   }
 
   function drawPenDot(item, point) {
@@ -2321,8 +2321,8 @@
         ctx.fillStyle = item.color || "#e74a3b";
         var basePenWidth = Math.max(1, (item.width || 0.004) * minDim);
         var penWidthAt = function (point) {
-          var pressure = point && Number.isFinite(point.pressure) ? point.pressure : 0.5;
-          return basePenWidth * (0.7 + pressure * 0.8);
+          if (!point || !Number.isFinite(point.pressure)) return basePenWidth;
+          return basePenWidth * (0.7 + point.pressure * 0.8);
         };
         var penPoints = item.points.map(function (point) {
           var p = canonicalToDisplay(point, rotation);

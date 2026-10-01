@@ -1736,8 +1736,8 @@
     document.body.classList.add("pdf-editor-open");
 
     overlay.addEventListener("pointerdown", pointerDown);
-    var pointerMoveEvent = ("onpointerrawupdate" in window) ? "pointerrawupdate" : "pointermove";
-    overlay.addEventListener(pointerMoveEvent, pointerMove);
+    overlay.addEventListener("pointermove", pointerMove);
+    if ("onpointerrawupdate" in window) overlay.addEventListener("pointerrawupdate", pointerRawMove);
     overlay.addEventListener("pointerup", pointerUp);
     overlay.addEventListener("dblclick", doubleClick);
     overlay.addEventListener("pointercancel", pointerUp);
@@ -2129,10 +2129,17 @@
     }
   }
 
+  function pointerRawMove(event) {
+    if (!active || !active.pointer || active.pointer.mode !== "pen") return;
+    active.pointer.rawInput = true;
+    pointerMove(event);
+  }
+
   function pointerMove(event) {
     if (!active || !active.pointer || event.pointerId !== active.pointer.id) return;
     event.preventDefault();
     var pointer = active.pointer;
+    if (pointer.mode === "pen" && event.type === "pointermove" && pointer.rawInput) return;
     if (pointer.mode === "pan") {
       active.stageWrap.scrollLeft = pointer.scrollLeft - (event.clientX - pointer.startX);
       active.stageWrap.scrollTop = pointer.scrollTop - (event.clientY - pointer.startY);

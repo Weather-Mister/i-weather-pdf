@@ -1702,7 +1702,6 @@
       lastWrapWidth: 0,
       lastWrapHeight: 0,
       spacePan: false,
-      drawFrame: null,
       embedded: embedded,
       mount: options.mount || null
     };
@@ -1737,7 +1736,8 @@
     document.body.classList.add("pdf-editor-open");
 
     overlay.addEventListener("pointerdown", pointerDown);
-    overlay.addEventListener("pointermove", pointerMove);
+    var pointerMoveEvent = ("onpointerrawupdate" in window) ? "pointerrawupdate" : "pointermove";
+    overlay.addEventListener(pointerMoveEvent, pointerMove);
     overlay.addEventListener("pointerup", pointerUp);
     overlay.addEventListener("dblclick", doubleClick);
     overlay.addEventListener("pointercancel", pointerUp);
@@ -1846,7 +1846,6 @@
     window.removeEventListener("blur", clearPanKey);
     clearTimeout(current.zoomRenderTimer);
     clearTimeout(current.resizeTimer);
-    if (current.drawFrame) cancelAnimationFrame(current.drawFrame);
     if (current.resizeObserver) current.resizeObserver.disconnect();
     if (save && hasChanges(current)) {
       host().commitAnnotations(current.pageId, current.annotations, true, !!current.embedded);
@@ -1896,8 +1895,8 @@
     return canvas.toDataURL(mime, mime === "image/png" ? undefined : 0.88);
   }
 
-  function pointFromEvent(event) {
-    var rect = active.overlay.getBoundingClientRect();
+  function pointFromEvent(event, rect) {
+    rect = rect || active.overlay.getBoundingClientRect();
     return {
       x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
       y: clamp((event.clientY - rect.top) / rect.height, 0, 1)
@@ -1910,27 +1909,86 @@
     return Number.isFinite(pressure) && pressure > 0 ? clamp(pressure, 0.08, 1) : 0.5;
   }
 
-  function penPointFromEvent(event) {
-    var canonical = displayToCanonical(pointFromEvent(event), active.rotation);
+  function penPointFromEvent(event, rect) {
+    var canonical = displayToCanonical(pointFromEvent(event, rect), active.rotation);
     canonical.pressure = pointerPressure(event);
     return canonical;
   }
 
-  function penPointDistancePx(a, b) {
+  function penPointDistancePx(a, b, pointer) {
     var first = canonicalToDisplay(a, active.rotation);
     var second = canonicalToDisplay(b, active.rotation);
     return Math.hypot(
-      (second.x - first.x) * Math.max(1, active.overlay.clientWidth),
-      (second.y - first.y) * Math.max(1, active.overlay.clientHeight)
+      (second.x - first.x) * Math.max(1, pointer.logicalWidth || active.overlay.clientWidth),
+      (second.y - first.y) * Math.max(1, pointer.logicalHeight || active.overlay.clientHeight)
     );
   }
 
-  function appendPenPoint(item, event) {
-    if (!item || item.points.length >= 8000) return;
-    var point = penPointFromEvent(event);
+  function penStrokeWidth(item, point) {
+    var base = Math.max(1, (item.width || 0.004) * Math.min(active.overlay.width, active.overlay.height));
+    var pressure = point && Number.isFinite(point.pressure) ? point.pressure : 0.5;
+    return base * (0.7 + pressure * 0.8);
+  }
+
+  function drawPenDot(item, point) {
+    if (!active || !item || !point) return;
+    var p = canonicalToDisplay(point, active.rotation);
+    var ctx = active.overlay.getContext("2d");
+    ctx.save();
+    ctx.fillStyle = item.color || "#e74a3b";
+    ctx.beginPath();
+    ctx.arc(
+      p.x * active.overlay.width,
+      p.y * active.overlay.height,
+      penStrokeWidth(item, point) / 2,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPenSegment(item, from, to) {
+    if (!active || !item || !from || !to) return;
+    var a = canonicalToDisplay(from, active.rotation);
+    var b = canonicalToDisplay(to, active.rotation);
+    var ctx = active.overlay.getContext("2d");
+    ctx.save();
+    ctx.strokeStyle = item.color || "#e74a3b";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = penStrokeWidth(item, to);
+    ctx.beginPath();
+    ctx.moveTo(a.x * active.overlay.width, a.y * active.overlay.height);
+    ctx.lineTo(b.x * active.overlay.width, b.y * active.overlay.height);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function appendPenPoint(item, event, pointer) {
+    if (!item || item.points.length >= 8000) return null;
+    var point = penPointFromEvent(event, pointer.rect);
     var last = item.points[item.points.length - 1];
-    // Keep sub-pixel samples from high-rate styluses without bloating long strokes.
-    if (!last || penPointDistancePx(last, point) >= 0.35) item.points.push(point);
+    if (last && penPointDistancePx(last, point, pointer) < 0.05) return null;
+    item.points.push(point);
+    return point;
+  }
+
+  function compactPenPoints(item, pointer) {
+    if (!item || !item.points || item.points.length < 3) return;
+    var points = item.points;
+    var kept = [points[0]];
+    var last = points[0];
+    for (var i = 1; i < points.length - 1; i++) {
+      var point = points[i];
+      if (penPointDistancePx(last, point, pointer) >= 0.35) {
+        kept.push(point);
+        last = point;
+      }
+    }
+    var end = points[points.length - 1];
+    if (end !== kept[kept.length - 1]) kept.push(end);
+    item.points = kept;
   }
 
   function drawOverlayOnly() {
@@ -1939,18 +1997,6 @@
     var ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawAnnotations(ctx, active.annotations, canvas.width, canvas.height, active.rotation, active.selectedId, true);
-  }
-
-  function schedulePointerDraw() {
-    if (!active || active.drawFrame) return;
-    var current = active;
-    current.drawFrame = requestAnimationFrame(function () {
-      if (!active || active !== current) return;
-      current.drawFrame = null;
-      // While inking, avoid rebuilding DOM hit layers on every pointer sample.
-      if (current.pointer && current.pointer.mode === "pen") drawOverlayOnly();
-      else draw();
-    });
   }
 
   function doubleClick(event) {
@@ -2048,8 +2094,15 @@
         points: [penStart]
       };
       active.annotations.push(pen);
-      active.pointer = { id: event.pointerId, mode: "pen", annotationId: pen.id };
-      draw();
+      active.pointer = {
+        id: event.pointerId,
+        mode: "pen",
+        annotationId: pen.id,
+        rect: active.overlay.getBoundingClientRect(),
+        logicalWidth: active.overlay.clientWidth,
+        logicalHeight: active.overlay.clientHeight
+      };
+      drawPenDot(pen, penStart);
       return;
     }
 
@@ -2086,8 +2139,6 @@
       return;
     }
 
-    var displayPoint = pointFromEvent(event);
-    var canonical = displayToCanonical(displayPoint, active.rotation);
     var item = active.annotations.find(function (annotation) {
       return annotation.id === (pointer.annotationId || active.selectedId);
     });
@@ -2098,10 +2149,19 @@
         ? event.getCoalescedEvents()
         : [event];
       if (!samples || !samples.length) samples = [event];
+      var previous = item.points[item.points.length - 1];
       for (var sampleIndex = 0; sampleIndex < samples.length && item.points.length < 8000; sampleIndex++) {
-        appendPenPoint(item, samples[sampleIndex]);
+        var added = appendPenPoint(item, samples[sampleIndex], pointer);
+        if (!added) continue;
+        drawPenSegment(item, previous, added);
+        previous = added;
       }
-    } else if (pointer.mode === "shape") {
+      return;
+    }
+
+    var displayPoint = pointFromEvent(event);
+    var canonical = displayToCanonical(displayPoint, active.rotation);
+    if (pointer.mode === "shape") {
       var x1 = pointer.start.x;
       var y1 = pointer.start.y;
       item.x = Math.min(x1, canonical.x);
@@ -2117,17 +2177,23 @@
       }
       moveAnnotation(item, pointer.original, dx, dy);
     }
-    if (pointer.mode === "pen") schedulePointerDraw();
-    else draw();
+    draw();
   }
 
   function pointerUp(event) {
     if (!active || !active.pointer || event.pointerId !== active.pointer.id) return;
     event.preventDefault();
     var pointer = active.pointer;
-    if (active.drawFrame) {
-      cancelAnimationFrame(active.drawFrame);
-      active.drawFrame = null;
+    if (pointer.mode === "pen") {
+      var penItem = active.annotations.find(function (annotation) {
+        return annotation.id === pointer.annotationId;
+      });
+      if (penItem) {
+        var lastBeforeUp = penItem.points[penItem.points.length - 1];
+        var endPoint = appendPenPoint(penItem, event, pointer);
+        if (endPoint && lastBeforeUp) drawPenSegment(penItem, lastBeforeUp, endPoint);
+        compactPenPoints(penItem, pointer);
+      }
     }
     active.pointer = null;
     active.overlay.classList.remove("panning");
@@ -2253,31 +2319,57 @@
         }
         ctx.strokeStyle = item.color || "#e74a3b";
         ctx.fillStyle = item.color || "#e74a3b";
-        ctx.lineWidth = Math.max(1, (item.width || 0.004) * minDim);
+        var basePenWidth = Math.max(1, (item.width || 0.004) * minDim);
+        var penWidthAt = function (point) {
+          var pressure = point && Number.isFinite(point.pressure) ? point.pressure : 0.5;
+          return basePenWidth * (0.7 + pressure * 0.8);
+        };
         var penPoints = item.points.map(function (point) {
           var p = canonicalToDisplay(point, rotation);
           return { x: p.x * width, y: p.y * height, pressure: point.pressure };
         });
-        if (penPoints.length === 1) {
-          ctx.beginPath();
-          ctx.arc(penPoints[0].x, penPoints[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.beginPath();
-          ctx.moveTo(penPoints[0].x, penPoints[0].y);
-          for (var penIndex = 1; penIndex < penPoints.length - 1; penIndex++) {
-            var currentPoint = penPoints[penIndex];
-            var nextPoint = penPoints[penIndex + 1];
-            ctx.quadraticCurveTo(
-              currentPoint.x,
-              currentPoint.y,
-              (currentPoint.x + nextPoint.x) / 2,
-              (currentPoint.y + nextPoint.y) / 2
-            );
+        var firstPenPoint = penPoints[0];
+        ctx.beginPath();
+        ctx.arc(firstPenPoint.x, firstPenPoint.y, penWidthAt(firstPenPoint) / 2, 0, Math.PI * 2);
+        ctx.fill();
+        if (penPoints.length > 1) {
+          if (penPoints.length === 2) {
+            ctx.beginPath();
+            ctx.moveTo(firstPenPoint.x, firstPenPoint.y);
+            ctx.lineTo(penPoints[1].x, penPoints[1].y);
+            ctx.lineWidth = penWidthAt(penPoints[1]);
+            ctx.stroke();
+          } else {
+            var previousMid = {
+              x: (penPoints[0].x + penPoints[1].x) / 2,
+              y: (penPoints[0].y + penPoints[1].y) / 2
+            };
+            ctx.beginPath();
+            ctx.moveTo(firstPenPoint.x, firstPenPoint.y);
+            ctx.lineTo(previousMid.x, previousMid.y);
+            ctx.lineWidth = penWidthAt(penPoints[1]);
+            ctx.stroke();
+            for (var penIndex = 1; penIndex < penPoints.length - 1; penIndex++) {
+              var currentPoint = penPoints[penIndex];
+              var nextPoint = penPoints[penIndex + 1];
+              var midpoint = {
+                x: (currentPoint.x + nextPoint.x) / 2,
+                y: (currentPoint.y + nextPoint.y) / 2
+              };
+              ctx.beginPath();
+              ctx.moveTo(previousMid.x, previousMid.y);
+              ctx.quadraticCurveTo(currentPoint.x, currentPoint.y, midpoint.x, midpoint.y);
+              ctx.lineWidth = penWidthAt(currentPoint);
+              ctx.stroke();
+              previousMid = midpoint;
+            }
+            var lastPenPoint = penPoints[penPoints.length - 1];
+            ctx.beginPath();
+            ctx.moveTo(previousMid.x, previousMid.y);
+            ctx.lineTo(lastPenPoint.x, lastPenPoint.y);
+            ctx.lineWidth = penWidthAt(lastPenPoint);
+            ctx.stroke();
           }
-          var lastPenPoint = penPoints[penPoints.length - 1];
-          ctx.lineTo(lastPenPoint.x, lastPenPoint.y);
-          ctx.stroke();
         }
       } else if (item.type === "text") {
         var anchor = canonicalToDisplay({ x: item.x, y: item.y }, rotation);

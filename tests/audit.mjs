@@ -35,6 +35,11 @@ assert(css.includes("content-visibility:auto"), "sidebar containment optimizatio
 assert(app.includes("12000000"), "high-resolution full-page canvas budget missing");
 assert(editor.includes("maxSide = 1600"), "inserted-image resize missing");
 assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
+assert(editor.includes("getCoalescedEvents"), "high-rate/coalesced pen sampling missing");
+assert(editor.includes("quadraticCurveTo"), "smoothed pen rendering missing");
+assert(editor.includes("schedulePointerDraw"), "frame-scheduled inking redraw missing");
+assert(!app.includes('!(modifier && ["a", "z", "y"].includes(key))'), "workspace still intercepts editor undo/redo shortcuts");
+assert(editor.includes("if (!active.embedded) {"), "embedded local undo history is not retained across autosave");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");
 assert(editor.includes('createToolButton("Edit text", "edittext")'), "existing-text editor tool missing");
 assert(editor.includes('createToolButton("Move image", "editimage")'), "existing-image move tool missing");

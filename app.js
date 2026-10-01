@@ -2477,7 +2477,12 @@
       els.sidebarPages.querySelector('.is-active')?.focus({ preventScroll: true });
       return;
     }
-    if (document.body.classList.contains("pdf-editor-open") && !inPages && !(modifier && ["a", "z", "y"].includes(key))) return;
+    if (document.body.classList.contains("pdf-editor-open") && !inPages) {
+      // The embedded editor owns Cmd/Ctrl+Z and Y so undoing ink never rebuilds
+      // the workspace (which would also reset the editor's zoom/scroll state).
+      if (modifier && (key === "z" || key === "y")) return;
+      if (!(modifier && key === "a")) return;
+    }
 
     if (event.key === "Insert") {
       event.preventDefault();

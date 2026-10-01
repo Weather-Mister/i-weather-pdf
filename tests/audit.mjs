@@ -36,8 +36,11 @@ assert(app.includes("12000000"), "high-resolution full-page canvas budget missin
 assert(editor.includes("maxSide = 1600"), "inserted-image resize missing");
 assert(editor.includes("item.points.length < 8000"), "pen point bound missing");
 assert(editor.includes("getCoalescedEvents"), "high-rate/coalesced pen sampling missing");
+assert(editor.includes("onpointerrawupdate"), "raw stylus input missing");
+assert(editor.includes("drawPenSegment"), "incremental pen segment rendering missing");
+assert(editor.includes("compactPenPoints"), "post-stroke pen compaction missing");
 assert(editor.includes("quadraticCurveTo"), "smoothed pen rendering missing");
-assert(editor.includes("schedulePointerDraw"), "frame-scheduled inking redraw missing");
+assert(editor.includes("0.7 + point.pressure * 0.8"), "stylus-pressure pen width missing");
 assert(!app.includes('!(modifier && ["a", "z", "y"].includes(key))'), "workspace still intercepts editor undo/redo shortcuts");
 assert(editor.includes("if (!active.embedded) {"), "embedded local undo history is not retained across autosave");
 assert(editor.includes("imageCache.size > 24"), "image cache bound missing");

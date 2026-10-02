@@ -2040,6 +2040,95 @@
     return fallbackIds;
   }
 
+  async function applyAddedTextEdits(output, page, crop, edits) {
+    const fallbackIds = new Set();
+    const fontCache = new Map();
+
+    async function getFont(edit) {
+      const name = textEditFontName(edit);
+      if (!fontCache.has(name)) {
+        fontCache.set(
+          name,
+          await output.embedFont(window.PDFLib.StandardFonts[name])
+        );
+      }
+      return fontCache.get(name);
+    }
+
+    for (const edit of edits) {
+      const text = String(edit.text || "").replace(/\t/g, "    ");
+      if (!text.length) continue;
+
+      try {
+        const font = await getFont(edit);
+        const size = Math.max(
+          1,
+          Number(edit.size || 0.04) * Math.min(crop.width, crop.height)
+        );
+        const lineHeight = size * 1.2;
+        const lines = text.split(/\r?\n/);
+        const widths = lines.map((line) =>
+          line ? font.widthOfTextAtSize(line, size) : 0
+        );
+
+        let ascent = size * 0.9;
+        if (typeof font.heightAtSize === "function") {
+          try {
+            ascent = font.heightAtSize(size, { descender: false });
+          } catch (_) {
+            ascent = font.heightAtSize(size);
+          }
+        }
+
+        const angle = normalizeRotation(-(Number(edit.angle) || 0));
+        const radians = angle * Math.PI / 180;
+        const sin = Math.sin(radians);
+        const cos = Math.cos(radians);
+        const topX = crop.x + Number(edit.x || 0) * crop.width;
+        const topY = crop.y + crop.height - Number(edit.y || 0) * crop.height;
+        const baselineX = topX + ascent * sin;
+        const baselineY = topY - ascent * cos;
+
+        page.drawText(text, {
+          x: baselineX,
+          y: baselineY,
+          size,
+          lineHeight,
+          font,
+          rotate: window.PDFLib.degrees(angle),
+          color: pdfRgb(edit.color || "#111111")
+        });
+
+        if (edit.underline) {
+          const underlineOffset = size * 0.12;
+          const thickness = Math.max(0.5, size * 0.055);
+          lines.forEach((line, index) => {
+            if (!line) return;
+            const down = index * lineHeight + underlineOffset;
+            const start = {
+              x: baselineX + down * sin,
+              y: baselineY - down * cos
+            };
+            page.drawLine({
+              start,
+              end: {
+                x: start.x + widths[index] * cos,
+                y: start.y + widths[index] * sin
+              },
+              thickness,
+              color: pdfRgb(edit.color || "#111111")
+            });
+          });
+        }
+      } catch (error) {
+        console.warn("Added PDF text fell back to canvas:", error);
+        fallbackIds.add(edit.id);
+      }
+    }
+
+    return fallbackIds;
+  }
+
   function sanitizeBaseName(name) {
     const base = (name || "document").replace(/\.pdf$/i, "");
     return base.replace(/[\\/:*?"<>|]+/g, "-").trim() || "document";
@@ -2115,6 +2204,7 @@
               : { x: 0, y: 0, width: copied.getWidth(), height: copied.getHeight() };
           const pageEdits = exportAnnotations[model.id] || [];
           const textEdits = pageEdits.filter((edit) => edit.type === "textedit");
+          const addedTextEdits = pageEdits.filter((edit) => edit.type === "text");
           const stripTargets = textEdits
             .filter((edit) => edit.uniqueOriginal)
             .map((edit) => edit.original);
@@ -2126,6 +2216,12 @@
             textEdits,
             stripped
           );
+          const rasterAddedTextIds = await applyAddedTextEdits(
+            output,
+            copied,
+            crop,
+            addedTextEdits
+          );
 
           const overlayBytes = await editor.exportOverlay(
             model.id,
@@ -2134,7 +2230,8 @@
             {
               annotations: pageEdits,
               strippedOriginals: [...stripped],
-              textEditIds: [...rasterTextEditIds]
+              textEditIds: [...rasterTextEditIds],
+              textIds: [...rasterAddedTextIds]
             }
           );
           if (overlayBytes) {

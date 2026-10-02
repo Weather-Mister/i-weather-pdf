@@ -63,6 +63,8 @@ assert(editor.includes('type: "imagemove"'), "existing image move annotation mis
 assert(editor.includes("fontFamily: run.fontFamily"), "existing text font metadata is not preserved");
 assert(editor.includes('contentEditable = "true"'), "direct in-page existing text editor missing");
 assert(editor.includes("beginInlineNewText"), "direct inline new-text editor missing");
+assert(editor.includes("async function doubleClick"), "double-click text editing handler missing");
+assert(editor.includes("await loadTextRuns()"), "double-click existing PDF text lookup missing");
 assert(!editor.includes('window.prompt("Text to add:")'), "new text must not use a prompt window");
 assert(editor.includes('dataset.zoomAction = "in"'), "zoom-in control missing");
 assert(editor.includes('dataset.zoomAction = "fit"'), "fit-page control missing");

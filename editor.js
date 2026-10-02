@@ -1999,14 +1999,38 @@
     drawAnnotations(ctx, active.annotations, canvas.width, canvas.height, active.rotation, active.selectedId, true);
   }
 
-  function doubleClick(event) {
+  async function doubleClick(event) {
     if (!active || active.tool !== "select" || event.button > 0) return;
-    var hit = hitTest(pointFromEvent(event));
-    if (!hit || hit.type !== "text") return;
+
+    var displayPoint = pointFromEvent(event);
+    var hit = hitTest(displayPoint);
+
+    if (hit && hit.type === "text") {
+      event.preventDefault();
+      event.stopPropagation();
+      active.pointer = null;
+      beginInlineAnnotationTextEdit(hit);
+      return;
+    }
+
+    if (hit && hit.type === "textedit") {
+      event.preventDefault();
+      event.stopPropagation();
+      active.pointer = null;
+      beginInlineTextEdit(null, hit);
+      return;
+    }
+
+    await loadTextRuns();
+    if (!active || active.tool !== "select") return;
+
+    var run = hitExistingText(displayPoint);
+    if (!run) return;
+
     event.preventDefault();
     event.stopPropagation();
     active.pointer = null;
-    beginInlineAnnotationTextEdit(hit);
+    beginInlineTextEdit(run, null);
   }
 
   function pointerDown(event) {

@@ -73,6 +73,9 @@ assert(!editor.includes('window.prompt("Edit existing PDF text'), "existing text
 assert(app.includes("function getPageTextRuns"), "existing PDF text extraction missing");
 assert(app.includes("function stripOriginalText"), "content-stream text removal missing");
 assert(app.includes("applyExistingTextEdits"), "vector replacement export missing");
+assert(app.includes("applyAddedTextEdits"), "added text is not exported as vector PDF text");
+assert(app.includes("textIds: [...rasterAddedTextIds]"), "vector added text is not excluded from the raster overlay");
+assert(editor.includes('if (item.type === "text") return textIds.has(item.id);'), "added text overlay filtering is missing");
 assert(app.includes('loadScript("./pptx-viewer.js?v=1"'), "PPTX viewer is not lazy-loaded");
 assert(app.includes('link.href = "./pptx-viewer.css?v=2"'), "PPTX viewer CSS is not lazy-loaded");
 assert(html.includes('id="pptxViewerButton"'), "PPTX viewer entry button missing");

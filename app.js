@@ -2089,22 +2089,28 @@
         const baselineX = topX + ascent * sin;
         const baselineY = topY - ascent * cos;
 
-        page.drawText(text, {
-          x: baselineX,
-          y: baselineY,
-          size,
-          lineHeight,
-          font,
-          rotate: window.PDFLib.degrees(angle),
-          color: pdfRgb(edit.color || "#111111")
-        });
+        const rotation = window.PDFLib.degrees(angle);
+        const color = pdfRgb(edit.color || "#111111");
+        const underlineOffset = size * 0.12;
+        const thickness = Math.max(0.5, size * 0.055);
 
-        if (edit.underline) {
-          const underlineOffset = size * 0.12;
-          const thickness = Math.max(0.5, size * 0.055);
-          lines.forEach((line, index) => {
-            if (!line) return;
-            const down = index * lineHeight + underlineOffset;
+        lines.forEach((line, index) => {
+          if (!line) return;
+          const lineDown = index * lineHeight;
+          const lineX = baselineX + lineDown * sin;
+          const lineY = baselineY - lineDown * cos;
+
+          page.drawText(line, {
+            x: lineX,
+            y: lineY,
+            size,
+            font,
+            rotate: rotation,
+            color
+          });
+
+          if (edit.underline) {
+            const down = lineDown + underlineOffset;
             const start = {
               x: baselineX + down * sin,
               y: baselineY - down * cos
@@ -2116,10 +2122,10 @@
                 y: start.y + widths[index] * sin
               },
               thickness,
-              color: pdfRgb(edit.color || "#111111")
+              color
             });
-          });
-        }
+          }
+        });
       } catch (error) {
         console.warn("Added PDF text fell back to canvas:", error);
         fallbackIds.add(edit.id);

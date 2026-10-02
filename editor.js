@@ -190,7 +190,7 @@
     active.overlay.classList.toggle("edit-existing-text", tool === "edittext");
     active.overlay.classList.toggle("edit-existing-image", tool === "editimage");
     active.status.textContent =
-      tool === "select" ? "Tap an edit to select and drag it" :
+      tool === "select" ? "Tap an edit to select and drag it · double-click text to edit" :
       tool === "edittext" ? "Loading editable text…" :
       tool === "editimage" ? "Finding images…" :
       tool === "text" ? "Tap empty space to add text · tap added text to edit" :

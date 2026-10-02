@@ -2643,8 +2643,11 @@
     options = options || {};
     var annotations = options.annotations || host().getAnnotations(pageId);
     var textEditIds = new Set(options.textEditIds || []);
+    var textIds = new Set(options.textIds || []);
     annotations = annotations.filter(function (item) {
-      return item.type !== "textedit" || textEditIds.has(item.id);
+      if (item.type === "textedit") return textEditIds.has(item.id);
+      if (item.type === "text") return textIds.has(item.id);
+      return true;
     });
     if (!annotations.length) return null;
 
